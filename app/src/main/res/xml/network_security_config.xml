@@ -1,0 +1,19 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!--
+  Cleartext is blocked by default (the platform default on API 28+), and that is
+  correct for every real-world target: a physical or tethered phone dials the
+  public device edge over wss:// (TLS at traefik), so no exception is needed there.
+
+  The ONE exception is the emulated device class, which runs this app inside the
+  cluster in an egress-locked pod. It cannot reach the public wss edge — only the
+  INTERNAL device-gateway service, addressed as a Kubernetes cluster-local name
+  (device-gateway.<namespace>.svc.cluster.local) over plain ws:// with a port.
+  That traffic is NOT unprotected: the pod is in the service mesh, so ztunnel
+  wraps it in mTLS on the wire transparently to the app. So cleartext is permitted
+  ONLY for cluster-local names, and remains blocked everywhere else.
+-->
+<network-security-config>
+    <domain-config cleartextTrafficPermitted="true">
+        <domain includeSubdomains="true">svc.cluster.local</domain>
+    </domain-config>
+</network-security-config>
