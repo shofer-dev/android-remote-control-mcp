@@ -50,8 +50,6 @@ class PlatformConnectorService : Service() {
 
     @Inject lateinit var serverFactory: McpToolServerFactory
 
-    @Inject lateinit var policyEnforcer: ConnectorPolicyEnforcer
-
     private val serviceScope = CoroutineScope(SupervisorJob() + Dispatchers.IO)
     private val running = AtomicBoolean(false)
     private var connector: PlatformConnector? = null
@@ -92,7 +90,6 @@ class PlatformConnectorService : Service() {
                 actionHandler = actionHandler,
                 termsBroker = termsBroker,
                 serverFactory = serverFactory,
-                policyEnforcer = policyEnforcer,
             )
         connector = platformConnector
 

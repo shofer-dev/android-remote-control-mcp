@@ -17,10 +17,8 @@ package com.danielealbano.androidremotecontrolmcp.mcp.tools
  * (`send_intent`).
  *
  * Every callable tool carries a [ToolGroup]. The group is read vs write per the §4 table and is
- * load-bearing twice over: on the platform it drives mode filtering and the approval floor
- * (§6.2), and on the device the connector's last-hop policy enforcement (§6.4,
- * [com.danielealbano.androidremotecontrolmcp.services.connector.ConnectorPolicyEnforcer]) refuses
- * WRITE-group ("acting") tools outside active hours. READ-group tools are perception only.
+ * load-bearing on the platform, where it drives mode filtering and the approval floor (§6.2):
+ * WRITE-group ("acting") tools park an approval by default, READ-group tools are perception only.
  *
  * Names here are the upstream base names (before the `android_[<slug>_]` prefix). The mapping to
  * the §4 logical names is noted per row.

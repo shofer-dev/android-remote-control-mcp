@@ -18,7 +18,6 @@ import android.util.Log
 import com.danielealbano.androidremotecontrolmcp.BuildConfig
 import com.danielealbano.androidremotecontrolmcp.data.model.ConnectorConfig
 import com.danielealbano.androidremotecontrolmcp.data.repository.SettingsRepository
-import com.danielealbano.androidremotecontrolmcp.mcp.tools.McpToolUtils
 import com.danielealbano.androidremotecontrolmcp.services.connector.crypto.DeviceIdentity
 import com.danielealbano.androidremotecontrolmcp.services.connector.protocol.ActionName
 import com.danielealbano.androidremotecontrolmcp.services.connector.protocol.ConnectorJson
@@ -70,7 +69,6 @@ class PlatformConnector(
     private val actionHandler: DeviceActionHandler,
     private val termsBroker: TermsConsentBroker,
     private val serverFactory: McpToolServerFactory,
-    private val policyEnforcer: ConnectorPolicyEnforcer,
     private val appVersion: String = BuildConfig.VERSION_NAME,
 ) {
     private val _status = MutableStateFlow<ConnectorStatus>(ConnectorStatus.NeedsConfig)
@@ -144,14 +142,7 @@ class PlatformConnector(
         if (session != null) return
         val serverConfig = settingsRepository.getServerConfig()
         val server = serverFactory.create(serverConfig)
-        val toolNamePrefix = McpToolUtils.buildToolNamePrefix(serverConfig.deviceSlug)
-        // The last-hop policy gate (§6.4): every tools/call is checked against the on-device
-        // DevicePolicy BEFORE it reaches the in-process MCP server.
-        val gate =
-            RelayTransport.CommandPolicy { toolName, params ->
-                policyEnforcer.evaluate(toolName, toolNamePrefix, params)
-            }
-        val relay = RelayTransport(commandPolicy = gate) { /* replaced per-connection via rebind */ }
+        val relay = RelayTransport { /* replaced per-connection via rebind */ }
         transport = relay
         session = server.createSession(relay)
         Log.i(TAG, "MCP session established (device_id present=${config.isEnrolled})")

@@ -3,7 +3,6 @@ package com.danielealbano.androidremotecontrolmcp.data.repository
 import com.danielealbano.androidremotecontrolmcp.data.model.BindingAddress
 import com.danielealbano.androidremotecontrolmcp.data.model.BuiltinPermissions
 import com.danielealbano.androidremotecontrolmcp.data.model.ConnectorConfig
-import com.danielealbano.androidremotecontrolmcp.data.model.DevicePolicy
 import com.danielealbano.androidremotecontrolmcp.data.model.EventChannelConfig
 import com.danielealbano.androidremotecontrolmcp.data.model.NotificationFilterMode
 import com.danielealbano.androidremotecontrolmcp.data.model.ServerConfig
@@ -284,18 +283,4 @@ interface SettingsRepository {
 
     /** Updates the connector auto-start toggle. */
     suspend fun updateConnectorAutoStart(enabled: Boolean)
-
-    // --- Device policy (last-hop enforcement snapshot, §6.4) ---
-
-    /** Observes the platform-authored device policy the connector enforces before each command. */
-    val devicePolicy: Flow<DevicePolicy>
-
-    /** Returns the current device policy as a one-shot read. */
-    suspend fun getDevicePolicy(): DevicePolicy
-
-    /**
-     * Replaces the stored device policy. The home for a future policy-snapshot frame (wire spec
-     * Q3); today it is driven through DataStore / the adb-broadcast surface out of band.
-     */
-    suspend fun updateDevicePolicy(policy: DevicePolicy)
 }
