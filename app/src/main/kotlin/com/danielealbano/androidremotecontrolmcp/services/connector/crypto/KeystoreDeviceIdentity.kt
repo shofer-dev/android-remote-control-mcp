@@ -1,138 +1,316 @@
+@file:Suppress("TooManyFunctions", "TooGenericExceptionCaught", "ReturnCount", "MaxLineLength")
+
 package com.danielealbano.androidremotecontrolmcp.services.connector.crypto
 
+import android.content.Context
 import android.security.keystore.KeyGenParameterSpec
 import android.security.keystore.KeyProperties
 import android.security.keystore.StrongBoxUnavailableException
 import android.util.Log
+import dagger.hilt.android.qualifiers.ApplicationContext
 import kotlinx.serialization.json.JsonArray
 import kotlinx.serialization.json.JsonElement
 import kotlinx.serialization.json.JsonPrimitive
 import kotlinx.serialization.json.buildJsonObject
-import java.security.KeyPairGenerator
+import java.io.File
+import java.nio.ByteBuffer
+import java.security.KeyPair
 import java.security.KeyStore
-import java.security.PublicKey
+import java.security.PrivateKey
 import java.security.SecureRandom
 import java.security.Signature
 import java.util.Base64
+import javax.crypto.Cipher
+import javax.crypto.KeyGenerator
+import javax.crypto.SecretKey
+import javax.crypto.spec.GCMParameterSpec
 import javax.inject.Inject
 import javax.inject.Singleton
 
 /**
- * [DeviceIdentity] backed by a hardware-backed, non-exportable ed25519 key in the
- * AndroidKeyStore, with a key-attestation chain.
+ * [DeviceIdentity] that is HARDWARE-FIRST WITH AN HONEST SOFTWARE FALLBACK.
  *
- * There is no pre-existing AndroidKeyStore usage in the app to collide with (fork map §6),
- * so the alias below is free. The private key never leaves the Keymint/StrongBox boundary —
- * it is generated `PURPOSE_SIGN` and read back only as a `PrivateKey` handle, never as raw
- * bytes — which is exactly what the platform's attestation is meant to prove.
+ * The private key is a non-exportable ed25519 key in the AndroidKeyStore (TEE/StrongBox)
+ * whenever the device can mint one, carrying a key-attestation chain. But AndroidKeyStore
+ * ed25519 keygen is NOT universal — an emulator, an old device, or a de-Googled ROM throws
+ * `NoSuchAlgorithmException: no such algorithm: Ed25519 for provider AndroidKeyStore`. That
+ * must NOT be a hard failure: the platform does not verify the attestation chain at redeem
+ * (it is `omitempty` and unchecked) and it models a per-device attestation TIER
+ * (`docs/phones/android_support.md` §3/§6.2), so a software key with `tier=software` is the
+ * intended path for such devices — org policy, not a crash, decides if that is acceptable.
  *
- * Generation prefers StrongBox and transparently falls back to the TEE when StrongBox is
- * unavailable (most devices, and the emulator, have no StrongBox). On an emulator the whole
- * chain degrades to software tier; that is expected and still enrols (the platform records
- * the tier, it does not require hardware — wire spec §3.1).
+ * ── Selection (deterministic, stable across runs) ──────────────────────────────────────
+ * 1. AndroidKeyStore already holds the ed25519 alias  → HARDWARE (reuse it).
+ * 2. else a software key is persisted                 → SOFTWARE (reuse it).
+ * 3. else try to generate a hardware key (StrongBox → TEE); on ANY failure, generate and
+ *    persist a software key and log a LOUD warning.
  *
- * ed25519 in AndroidKeyStore is available from API 33 (our minSdk), so no software-key
- * fallback is provided: a device that cannot mint a non-exportable ed25519 key cannot
- * satisfy the security contract and must fail loudly rather than silently downgrade to an
- * exportable software key.
+ * Once a device is on software (its hardware attempt failed and the alias is absent), the
+ * persisted key is found first on the next run, so the identity NEVER rotates mid-life — the
+ * `device_id`↔pubkey binding established at enrolment stays valid.
+ *
+ * ── Software key at rest ───────────────────────────────────────────────────────────────
+ * A software private key cannot live in the AndroidKeyStore, so it is persisted in the app's
+ * private files dir, AES-GCM-wrapped by an AndroidKeyStore AES key (AES/GCM is universally
+ * available even where Ed25519 is not). If the wrap itself is unavailable the blob is stored
+ * unwrapped with a warning — a software key is already the weaker tier and app-private storage
+ * is the floor.
+ *
+ * [signChallenge] goes through [AttachCrypto.signingInput] on BOTH paths, so the
+ * hex-string-ASCII signing contract is identical regardless of tier.
  */
 @Singleton
 class KeystoreDeviceIdentity
     @Inject
-    constructor() : DeviceIdentity {
-        @Volatile private var attestationChallenge: ByteArray? = null
+    constructor(
+        @ApplicationContext private val context: Context,
+    ) : DeviceIdentity {
+        private class Material(
+            val tier: String,
+            val rawPublicKey: ByteArray,
+            val attestation: JsonElement,
+            val sign: (ByteArray) -> ByteArray,
+        )
 
-        override fun publicKeyBase64(): String {
-            val publicKey = ensureKeyPair().first
-            val raw = AttachCrypto.rawPublicKeyFromSpki(publicKey.encoded)
-            return AttachCrypto.encodePublicKey(raw)
-        }
+        @Volatile private var material: Material? = null
 
-        override fun attestation(): JsonElement {
-            ensureKeyPair()
-            val keyStore = KeyStore.getInstance(ANDROID_KEYSTORE).apply { load(null) }
-            val chain = keyStore.getCertificateChain(KEY_ALIAS)
-            if (chain == null || chain.isEmpty()) {
-                Log.w(TAG, "No attestation chain available for key '$KEY_ALIAS' (software provider?)")
-                return buildJsonObject { put("format", JsonPrimitive(ATTESTATION_FORMAT)) }
-            }
-            val encoder = Base64.getEncoder()
-            val certs =
-                chain.map { cert -> JsonPrimitive(encoder.encodeToString(cert.encoded)) }
-            return buildJsonObject {
-                put("format", JsonPrimitive(ATTESTATION_FORMAT))
-                put("chain", JsonArray(certs))
-            }
-        }
+        override fun publicKeyBase64(): String = AttachCrypto.encodePublicKey(ensure().rawPublicKey)
+
+        override fun attestation(): JsonElement = ensure().attestation
+
+        override fun attestationTier(): String = ensure().tier
 
         override fun signChallenge(nonce: String): String {
-            val privateKey = ensureKeyPair().second
-            val signature =
-                Signature.getInstance(ED25519).apply {
-                    initSign(privateKey)
-                    update(AttachCrypto.signingInput(nonce))
-                }
-            return AttachCrypto.encodeSignature(signature.sign())
+            val signed = ensure().sign(AttachCrypto.signingInput(nonce))
+            return AttachCrypto.encodeSignature(signed)
         }
 
-        /**
-         * Loads the existing keypair or generates it on first use. The public and private
-         * handles are re-read from the keystore each call (cheap) so a rotation elsewhere is
-         * observed; generation itself is idempotent via [KeyStore.containsAlias].
-         */
         @Synchronized
-        private fun ensureKeyPair(): Pair<PublicKey, java.security.PrivateKey> {
-            val keyStore = KeyStore.getInstance(ANDROID_KEYSTORE).apply { load(null) }
-            if (!keyStore.containsAlias(KEY_ALIAS)) {
-                generateKeyPair()
+        private fun ensure(): Material {
+            material?.let { return it }
+            val resolved = resolveHardware() ?: resolvePersistedSoftware() ?: generateFresh()
+            material = resolved
+            Log.i(TAG, "Device identity ready (tier=${resolved.tier})")
+            return resolved
+        }
+
+        // ─────────────────────────────── hardware path ────────────────────────────────────
+
+        private fun resolveHardware(): Material? {
+            return try {
+                val keyStore = KeyStore.getInstance(ANDROID_KEYSTORE).apply { load(null) }
+                if (!keyStore.containsAlias(KEY_ALIAS)) return null
+                hardwareMaterial(keyStore)
+            } catch (e: Exception) {
+                Log.w(TAG, "Failed to load existing hardware key; will consider software fallback", e)
+                null
             }
+        }
+
+        private fun hardwareMaterial(keyStore: KeyStore): Material {
             val entry = keyStore.getEntry(KEY_ALIAS, null) as KeyStore.PrivateKeyEntry
-            return entry.certificate.publicKey to entry.privateKey
+            val publicKey = entry.certificate.publicKey
+            val rawPublicKey = AttachCrypto.rawPublicKeyFromSpki(publicKey.encoded)
+            val chain = keyStore.getCertificateChain(KEY_ALIAS)
+            val attestation =
+                buildJsonObject {
+                    put("format", JsonPrimitive(ATTESTATION_FORMAT))
+                    put("tier", JsonPrimitive(DeviceIdentity.TIER_HARDWARE))
+                    if (chain != null && chain.isNotEmpty()) {
+                        val encoder = Base64.getEncoder()
+                        put("chain", JsonArray(chain.map { JsonPrimitive(encoder.encodeToString(it.encoded)) }))
+                    }
+                }
+            val privateKey = entry.privateKey
+            return Material(
+                tier = DeviceIdentity.TIER_HARDWARE,
+                rawPublicKey = rawPublicKey,
+                attestation = attestation,
+                sign = { message -> signHardware(privateKey, message) },
+            )
         }
 
-        private fun generateKeyPair() {
-            // A stable-per-install attestation challenge. The platform does not currently
-            // enforce challenge freshness (attestation is accepted, not verified — wire spec
-            // §3.1), but a challenge is required to make the Keymint emit an attestation
-            // extension at all, so we mint one once and keep it for the key's lifetime.
-            val challenge =
-                attestationChallenge ?: ByteArray(CHALLENGE_BYTES).also {
-                    SecureRandom().nextBytes(it)
-                    attestationChallenge = it
-                }
+        private fun signHardware(
+            privateKey: PrivateKey,
+            message: ByteArray,
+        ): ByteArray =
+            // No explicit provider: an AndroidKeyStore private key routes to the keystore signer.
+            Signature.getInstance(ED25519).run {
+                initSign(privateKey)
+                update(message)
+                sign()
+            }
 
-            try {
-                buildAndGenerate(challenge, strongBox = true)
-                Log.i(TAG, "Generated StrongBox-backed ed25519 identity key")
-            } catch (_: StrongBoxUnavailableException) {
-                buildAndGenerate(challenge, strongBox = false)
-                Log.i(TAG, "Generated TEE-backed ed25519 identity key (StrongBox unavailable)")
+        /** Attempts hardware keygen (StrongBox → TEE). Returns null on any unsupported/failure. */
+        private fun tryGenerateHardware(): Material? {
+            val challenge = ByteArray(CHALLENGE_BYTES).also { SecureRandom().nextBytes(it) }
+            return try {
+                try {
+                    generateHardwareKey(challenge, strongBox = true)
+                    Log.i(TAG, "Generated StrongBox-backed ed25519 identity key")
+                } catch (_: StrongBoxUnavailableException) {
+                    generateHardwareKey(challenge, strongBox = false)
+                    Log.i(TAG, "Generated TEE-backed ed25519 identity key (StrongBox unavailable)")
+                }
+                val keyStore = KeyStore.getInstance(ANDROID_KEYSTORE).apply { load(null) }
+                hardwareMaterial(keyStore)
+            } catch (e: Exception) {
+                // NoSuchAlgorithmException (no AndroidKeyStore Ed25519), ProviderException, etc.
+                Log.w(TAG, "Hardware ed25519 key generation unavailable (${e.javaClass.simpleName}: ${e.message})")
+                null
             }
         }
 
-        private fun buildAndGenerate(
+        private fun generateHardwareKey(
             challenge: ByteArray,
             strongBox: Boolean,
         ) {
             val spec =
                 KeyGenParameterSpec
                     .Builder(KEY_ALIAS, KeyProperties.PURPOSE_SIGN)
-                    // Ed25519 (EdDSA) hashes internally; no external digest is applied.
-                    .setDigests(KeyProperties.DIGEST_NONE)
+                    .setDigests(KeyProperties.DIGEST_NONE) // Ed25519 (EdDSA) hashes internally
                     .setAttestationChallenge(challenge)
                     .apply { if (strongBox) setIsStrongBoxBacked(true) }
                     .build()
-            val generator = KeyPairGenerator.getInstance(ED25519, ANDROID_KEYSTORE)
+            val generator = java.security.KeyPairGenerator.getInstance(ED25519, ANDROID_KEYSTORE)
             generator.initialize(spec)
             generator.generateKeyPair()
+        }
+
+        // ─────────────────────────────── software path ────────────────────────────────────
+
+        private fun generateFresh(): Material {
+            tryGenerateHardware()?.let { return it }
+
+            Log.w(
+                TAG,
+                "AndroidKeyStore cannot mint an ed25519 key on this device — falling back to a " +
+                    "SOFTWARE key (attestation tier=software). This is expected on emulators, old " +
+                    "devices and de-Googled ROMs; org policy decides whether software pairing is allowed.",
+            )
+            val keyPair = SoftwareEd25519.generate()
+            runCatching { persistSoftwareKey(keyPair) }
+                .onFailure { Log.e(TAG, "Failed to persist software key; re-attach will regenerate", it) }
+            return softwareMaterial(keyPair)
+        }
+
+        private fun resolvePersistedSoftware(): Material? {
+            val keyPair = loadPersistedSoftwareKey() ?: return null
+            Log.w(TAG, "Reusing persisted SOFTWARE ed25519 key (attestation tier=software)")
+            return softwareMaterial(keyPair)
+        }
+
+        private fun softwareMaterial(keyPair: KeyPair): Material =
+            Material(
+                tier = DeviceIdentity.TIER_SOFTWARE,
+                rawPublicKey = SoftwareEd25519.rawPublicKey(keyPair.public),
+                // A software key produces no hardware chain — send an honest tier-only attestation.
+                attestation = buildJsonObject { put("tier", JsonPrimitive(DeviceIdentity.TIER_SOFTWARE)) },
+                sign = { message -> SoftwareEd25519.sign(keyPair.private, message) },
+            )
+
+        private fun softwareKeyFile(): File = File(context.filesDir, SOFTWARE_KEY_FILE)
+
+        private fun persistSoftwareKey(keyPair: KeyPair) {
+            val priv = keyPair.private.encoded // PKCS#8
+            val pub = keyPair.public.encoded // X.509 SPKI
+            val blob =
+                ByteBuffer
+                    .allocate(Int.SIZE_BYTES + priv.size + pub.size)
+                    .putInt(priv.size)
+                    .put(priv)
+                    .put(pub)
+                    .array()
+            softwareKeyFile().writeBytes(wrap(blob))
+        }
+
+        private fun loadPersistedSoftwareKey(): KeyPair? {
+            val file = softwareKeyFile()
+            if (!file.exists()) return null
+            return try {
+                val blob = unwrap(file.readBytes())
+                val buffer = ByteBuffer.wrap(blob)
+                val privLen = buffer.int
+                val priv = ByteArray(privLen).also { buffer.get(it) }
+                val pub = ByteArray(buffer.remaining()).also { buffer.get(it) }
+                SoftwareEd25519.loadKeyPair(priv, pub)
+            } catch (e: Exception) {
+                Log.e(TAG, "Failed to read persisted software key; regenerating", e)
+                null
+            }
+        }
+
+        // ── at-rest wrapping: AES-GCM under an AndroidKeyStore AES key (falls back to plaintext) ──
+
+        private fun wrap(plain: ByteArray): ByteArray =
+            try {
+                val cipher = Cipher.getInstance(AES_TRANSFORM)
+                cipher.init(Cipher.ENCRYPT_MODE, aesWrapKey())
+                val iv = cipher.iv
+                val ciphertext = cipher.doFinal(plain)
+                ByteBuffer
+                    .allocate(1 + iv.size + ciphertext.size)
+                    .put(WRAP_AES_GCM)
+                    .put(iv)
+                    .put(ciphertext)
+                    .array()
+            } catch (e: Exception) {
+                Log.w(TAG, "AES-GCM wrap unavailable; storing software key unwrapped in private storage", e)
+                ByteBuffer
+                    .allocate(1 + plain.size)
+                    .put(WRAP_PLAINTEXT)
+                    .put(plain)
+                    .array()
+            }
+
+        private fun unwrap(stored: ByteArray): ByteArray {
+            val buffer = ByteBuffer.wrap(stored)
+            return when (val marker = buffer.get()) {
+                WRAP_PLAINTEXT -> {
+                    ByteArray(buffer.remaining()).also { buffer.get(it) }
+                }
+
+                WRAP_AES_GCM -> {
+                    val iv = ByteArray(GCM_IV_BYTES).also { buffer.get(it) }
+                    val ciphertext = ByteArray(buffer.remaining()).also { buffer.get(it) }
+                    val cipher = Cipher.getInstance(AES_TRANSFORM)
+                    cipher.init(Cipher.DECRYPT_MODE, aesWrapKey(), GCMParameterSpec(GCM_TAG_BITS, iv))
+                    cipher.doFinal(ciphertext)
+                }
+
+                else -> {
+                    error("Unknown software-key wrap marker: $marker")
+                }
+            }
+        }
+
+        private fun aesWrapKey(): SecretKey {
+            val keyStore = KeyStore.getInstance(ANDROID_KEYSTORE).apply { load(null) }
+            (keyStore.getEntry(AES_WRAP_ALIAS, null) as? KeyStore.SecretKeyEntry)?.let { return it.secretKey }
+            val generator = KeyGenerator.getInstance(KeyProperties.KEY_ALGORITHM_AES, ANDROID_KEYSTORE)
+            generator.init(
+                KeyGenParameterSpec
+                    .Builder(AES_WRAP_ALIAS, KeyProperties.PURPOSE_ENCRYPT or KeyProperties.PURPOSE_DECRYPT)
+                    .setBlockModes(KeyProperties.BLOCK_MODE_GCM)
+                    .setEncryptionPaddings(KeyProperties.ENCRYPTION_PADDING_NONE)
+                    .build(),
+            )
+            return generator.generateKey()
         }
 
         companion object {
             private const val TAG = "MCP:DeviceIdentity"
             private const val ANDROID_KEYSTORE = "AndroidKeyStore"
             private const val KEY_ALIAS = "platform_connector_ed25519_identity"
+            private const val AES_WRAP_ALIAS = "platform_connector_key_wrap_aes"
             private const val ED25519 = "Ed25519"
             private const val ATTESTATION_FORMAT = "android-key-attestation"
             private const val CHALLENGE_BYTES = 32
+            private const val SOFTWARE_KEY_FILE = "connector_sw_ed25519.bin"
+            private const val AES_TRANSFORM = "AES/GCM/NoPadding"
+            private const val GCM_IV_BYTES = 12
+            private const val GCM_TAG_BITS = 128
+            private const val WRAP_PLAINTEXT: Byte = 0
+            private const val WRAP_AES_GCM: Byte = 1
         }
     }

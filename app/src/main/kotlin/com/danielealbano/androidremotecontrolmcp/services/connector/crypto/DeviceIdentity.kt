@@ -36,4 +36,18 @@ interface DeviceIdentity {
      * STRING — see [AttachCrypto.signingInput] for the trap this guards.
      */
     fun signChallenge(nonce: String): String
+
+    /**
+     * The attestation tier of the key backing this identity: [TIER_HARDWARE] when the key
+     * lives in the AndroidKeyStore (TEE/StrongBox), [TIER_SOFTWARE] when it is a bundled
+     * software key. Reported honestly — the platform records the tier and org policy decides
+     * whether software is acceptable; it does not refuse enrolment on tier
+     * (`docs/phones/android_support.md` §3/§6.2).
+     */
+    fun attestationTier(): String
+
+    companion object {
+        const val TIER_HARDWARE = "hardware"
+        const val TIER_SOFTWARE = "software"
+    }
 }

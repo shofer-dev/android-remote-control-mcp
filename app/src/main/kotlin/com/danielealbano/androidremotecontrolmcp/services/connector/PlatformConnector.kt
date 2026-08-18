@@ -276,6 +276,7 @@ class PlatformConnector(
                 state = HState.SENT_ATTACH
             } else {
                 _status.value = ConnectorStatus.Enrolling
+                Log.i(TAG, "Enrolling with attestation tier=${deviceIdentity.attestationTier()}")
                 send(
                     Frame(
                         type = FrameType.ENROLL,

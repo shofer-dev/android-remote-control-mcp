@@ -338,6 +338,9 @@ dependencies {
     // OkHttp WebSocket — the platform connector's outbound /ws/device client
     implementation(libs.okhttp)
 
+    // BouncyCastle — Ed25519 provider for the software-tier device-identity fallback
+    implementation(libs.bouncy.castle.prov)
+
     // MCP SDK
     implementation(libs.mcp.kotlin.sdk.server)
     runtimeOnly(libs.slf4j.android)
@@ -368,6 +371,8 @@ dependencies {
     // event-channel client. Server-side Ktor is not on the app (shipped) classpath — only the test one.
     testImplementation(libs.ktor.server.core)
     testImplementation(libs.ktor.server.netty)
+    // Software Ed25519 fallback is exercised in unit tests via the same BouncyCastle provider.
+    testImplementation(libs.bouncy.castle.prov)
 }
 
 androidComponents {
