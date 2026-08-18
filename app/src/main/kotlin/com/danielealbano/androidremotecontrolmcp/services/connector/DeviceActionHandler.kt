@@ -7,11 +7,10 @@ import kotlinx.serialization.json.JsonElement
  * `lock`, `wipe`, `locate`, `ring` (wire spec §6). `pause`/`resume` are gateway-local and
  * never arrive, so they are not part of this contract.
  *
- * Wave 2 defines this interface and ships a logging stub ([StubDeviceActionHandler]); Wave 3
- * replaces the stub with DeviceAdminReceiver-backed executors (lock/wipe via
- * `DevicePolicyManager`, locate via the flavor-neutral `LocationProvider`, ring via
- * `AudioManager`). Keeping the seam here means the connector's frame routing does not change
- * when the executors land.
+ * The production implementation is [PlatformDeviceActionHandler]: DeviceAdminReceiver-backed
+ * executors — lock/wipe via `DevicePolicyManager`, locate via the flavor-neutral
+ * `LocationProvider`, ring via `AudioManager`. Keeping the seam as an interface means the
+ * connector's frame routing does not depend on how an action is carried out.
  *
  * The gateway does not correlate or await an `action_result` — it logs it (wire spec §6.3) —
  * but sending one is the declared contract, so a handler returns an [ActionOutcome] that the

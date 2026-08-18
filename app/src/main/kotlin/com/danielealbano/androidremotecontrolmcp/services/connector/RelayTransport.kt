@@ -9,7 +9,16 @@ import io.modelcontextprotocol.kotlin.sdk.shared.AbstractTransport
 import io.modelcontextprotocol.kotlin.sdk.shared.TransportSendOptions
 import io.modelcontextprotocol.kotlin.sdk.types.JSONRPCMessage
 import io.modelcontextprotocol.kotlin.sdk.types.McpJson
+import kotlinx.serialization.json.JsonElement
+import kotlinx.serialization.json.JsonNull
+import kotlinx.serialization.json.add
+import kotlinx.serialization.json.buildJsonObject
+import kotlinx.serialization.json.contentOrNull
 import kotlinx.serialization.json.jsonObject
+import kotlinx.serialization.json.jsonPrimitive
+import kotlinx.serialization.json.put
+import kotlinx.serialization.json.putJsonArray
+import kotlinx.serialization.json.putJsonObject
 
 /**
  * The bridge between the platform relay envelope and the app's in-process MCP [Server].
@@ -46,12 +55,30 @@ import kotlinx.serialization.json.jsonObject
  * exchange from [replyCache] (bounded, FIFO — the same 32-entry bound the gateway uses),
  * re-sending the identical `reply` on the new socket, and never re-invokes the tool.
  *
+ * ── Last-hop policy enforcement (§6.4) ─────────────────────────────────────────────────
+ * Before an inbound `tools/call` reaches the MCP session, [commandPolicy] (when supplied)
+ * evaluates it against the on-device [DevicePolicy] — the layer closest to the act, which a
+ * dispatcher bug or a prompt-injected agent cannot route around. A refusal never reaches the
+ * tool: the exchange completes with an isError MCP result carrying the typed policy code, and
+ * `_onMessage` is never invoked. Non-`tools/call` messages and an absent policy pass straight
+ * through.
+ *
+ * @param commandPolicy optional last-hop gate; null disables on-device enforcement (e.g. tests).
  * @param outbound writes a frame to the CURRENT socket; suspends; may no-op if disconnected.
  */
 class RelayTransport(
+    private val commandPolicy: CommandPolicy? = null,
     @Volatile private var outbound: suspend (Frame) -> Unit,
 ) : AbstractTransport() {
     private val lock = Any()
+
+    /** The last-hop gate: evaluates a `tools/call` (un-prefixing handled by the impl). */
+    fun interface CommandPolicy {
+        suspend fun evaluate(
+            toolName: String,
+            params: JsonElement?,
+        ): ConnectorPolicyEnforcer.Decision
+    }
 
     /** jsonrpc-id → the relay exchange that carried the request, awaiting its response. */
     private val inflight = HashMap<String, RelayExchange>()
@@ -126,7 +153,66 @@ class RelayTransport(
             completeExchange(exchange, Frame(type = FrameType.REPLY, id = relayId, error = "not-ready"))
             return
         }
+
+        // Last-hop policy enforcement (§6.4): refuse a disallowed tools/call BEFORE it reaches
+        // the in-process MCP server, returning a typed error as an isError tool result.
+        val deny = evaluatePolicy(payload)
+        if (deny != null) {
+            Log.i(TAG, "cmd $relayId refused by device policy: ${deny.code}")
+            completeExchange(exchange, Frame(type = FrameType.REPLY, id = relayId, payload = denyResult(payload, deny)))
+            return
+        }
+
         onMessage.invoke(message)
+    }
+
+    /**
+     * Runs [commandPolicy] against an inbound message iff it is a `tools/call`. Returns the
+     * refusal to enforce, or null to let the message through (allowed, not a tool call, or no
+     * policy configured).
+     */
+    private suspend fun evaluatePolicy(payload: JsonElement): ConnectorPolicyEnforcer.Decision.Deny? {
+        val policy = commandPolicy ?: return null
+        val obj = runCatching { payload.jsonObject }.getOrNull() ?: return null
+        if (obj["method"]?.jsonPrimitive?.contentOrNull != TOOLS_CALL_METHOD) return null
+        val params = obj["params"]
+        val toolName =
+            runCatching {
+                params
+                    ?.jsonObject
+                    ?.get("name")
+                    ?.jsonPrimitive
+                    ?.contentOrNull
+            }.getOrNull()
+        if (toolName == null) return null
+        val args = runCatching { params?.jsonObject?.get("arguments") }.getOrNull()
+        return when (val decision = policy.evaluate(toolName, args)) {
+            is ConnectorPolicyEnforcer.Decision.Deny -> decision
+            ConnectorPolicyEnforcer.Decision.Allow -> null
+        }
+    }
+
+    /** Builds an isError MCP `tools/call` result echoing the request id, for a policy refusal. */
+    private fun denyResult(
+        requestPayload: JsonElement,
+        deny: ConnectorPolicyEnforcer.Decision.Deny,
+    ): JsonElement {
+        val idElement = runCatching { requestPayload.jsonObject["id"] }.getOrNull() ?: JsonNull
+        return buildJsonObject {
+            put("jsonrpc", "2.0")
+            put("id", idElement)
+            putJsonObject("result") {
+                putJsonArray("content") {
+                    add(
+                        buildJsonObject {
+                            put("type", "text")
+                            put("text", "${deny.code}: ${deny.message}")
+                        },
+                    )
+                }
+                put("isError", true)
+            }
+        }
     }
 
     override suspend fun send(
@@ -181,6 +267,7 @@ class RelayTransport(
 
     companion object {
         private const val TAG = "MCP:RelayTransport"
+        private const val TOOLS_CALL_METHOD = "tools/call"
         private const val REPLAY_CACHE_MAX = 32
         private const val REPLAY_CACHE_INITIAL = 16
         private const val REPLAY_CACHE_LOAD = 0.75f

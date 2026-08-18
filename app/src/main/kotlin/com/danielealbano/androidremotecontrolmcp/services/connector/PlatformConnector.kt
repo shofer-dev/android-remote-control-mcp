@@ -18,6 +18,7 @@ import android.util.Log
 import com.danielealbano.androidremotecontrolmcp.BuildConfig
 import com.danielealbano.androidremotecontrolmcp.data.model.ConnectorConfig
 import com.danielealbano.androidremotecontrolmcp.data.repository.SettingsRepository
+import com.danielealbano.androidremotecontrolmcp.mcp.tools.McpToolUtils
 import com.danielealbano.androidremotecontrolmcp.services.connector.crypto.DeviceIdentity
 import com.danielealbano.androidremotecontrolmcp.services.connector.protocol.ActionName
 import com.danielealbano.androidremotecontrolmcp.services.connector.protocol.ConnectorJson
@@ -69,6 +70,7 @@ class PlatformConnector(
     private val actionHandler: DeviceActionHandler,
     private val termsBroker: TermsConsentBroker,
     private val serverFactory: McpToolServerFactory,
+    private val policyEnforcer: ConnectorPolicyEnforcer,
     private val appVersion: String = BuildConfig.VERSION_NAME,
 ) {
     private val _status = MutableStateFlow<ConnectorStatus>(ConnectorStatus.NeedsConfig)
@@ -140,8 +142,16 @@ class PlatformConnector(
     /** Builds the long-lived MCP server + transport + session exactly once. */
     private suspend fun ensureSession(config: ConnectorConfig) {
         if (session != null) return
-        val server = serverFactory.create(settingsRepository.getServerConfig())
-        val relay = RelayTransport { /* replaced per-connection via rebind */ }
+        val serverConfig = settingsRepository.getServerConfig()
+        val server = serverFactory.create(serverConfig)
+        val toolNamePrefix = McpToolUtils.buildToolNamePrefix(serverConfig.deviceSlug)
+        // The last-hop policy gate (§6.4): every tools/call is checked against the on-device
+        // DevicePolicy BEFORE it reaches the in-process MCP server.
+        val gate =
+            RelayTransport.CommandPolicy { toolName, params ->
+                policyEnforcer.evaluate(toolName, toolNamePrefix, params)
+            }
+        val relay = RelayTransport(commandPolicy = gate) { /* replaced per-connection via rebind */ }
         transport = relay
         session = server.createSession(relay)
         Log.i(TAG, "MCP session established (device_id present=${config.isEnrolled})")
@@ -269,6 +279,13 @@ class PlatformConnector(
         private var deviceId: String = config.deviceId
         private var pendingReAccept = false
 
+        /**
+         * The terms hash the holder just re-accepted, to be asserted in the NEXT `attach_sig`
+         * (Gap B). Null on a normal attach; set when re-consenting after a `terms-required` at
+         * attach; cleared once the re-attach succeeds.
+         */
+        private var acceptedTermsHash: String? = null
+
         fun onOpen() {
             if (config.isEnrolled) {
                 _status.value = ConnectorStatus.Attaching
@@ -347,19 +364,29 @@ class PlatformConnector(
                 return ConnectionResult.Reconnect
             }
             if (pendingReAccept) {
-                // The terms that accompany a `terms-required` at attach (wire spec Q2 dead end).
-                // Show the user the text for transparency, but do NOT attempt to re-accept: the
-                // platform cannot record consent for an already-enrolled device without a fresh
-                // pairing code, so any accept would loop. Surface and halt.
-                Log.e(
-                    TAG,
-                    "terms-required at attach: re-consent cannot complete without a new pairing " +
-                        "code (platform-side dead end). Surfacing terms and halting.",
-                )
-                termsBroker.request(
-                    TermsConsentBroker.PendingTerms(frame.termsText.orEmpty(), hash, reAcceptance = true),
-                )
-                return ConnectionResult.Halt(ConnectorStatus.TermsReacceptanceBlocked)
+                // The fresh terms that accompany a `terms-required` at attach (Gap B). Present
+                // them, and on acceptance RE-ATTACH: send `attach` again to get a fresh challenge,
+                // then `attach_sig` carrying the accepted `terms_hash` (see [onChallenge]). No
+                // pairing code is involved — the device id is durable and the nonce signature
+                // proves the live device, exactly as before; the authenticated device then asserts
+                // acceptance of the current terms.
+                pendingReAccept = false
+                _status.value = ConnectorStatus.ReConsenting
+                Log.i(TAG, "terms-required at attach; presenting fresh terms for re-consent")
+                val accepted =
+                    termsBroker
+                        .request(TermsConsentBroker.PendingTerms(frame.termsText.orEmpty(), hash, reAcceptance = true))
+                        .await()
+                if (!accepted) {
+                    Log.w(TAG, "User declined republished terms; halting")
+                    return ConnectionResult.Halt(ConnectorStatus.TermsDeclined("republished terms declined"))
+                }
+                acceptedTermsHash = hash
+                _status.value = ConnectorStatus.Attaching
+                Log.i(TAG, "Terms re-accepted; re-attaching with the accepted terms_hash")
+                send(Frame(type = FrameType.ATTACH, deviceId = deviceId, appVersion = appVersion))
+                state = HState.SENT_ATTACH
+                return null
             }
             _status.value = ConnectorStatus.AwaitingTermsConsent
             Log.i(TAG, "Terms received; awaiting user consent")
@@ -404,13 +431,16 @@ class PlatformConnector(
                     Log.e(TAG, "Failed to sign challenge", e)
                     return ConnectionResult.Halt(ConnectorStatus.AttachRejected(e.message))
                 }
-            send(Frame(type = FrameType.ATTACH_SIG, signature = signature))
+            // The signing input is UNCHANGED (the nonce); `terms_hash` is an additional assertion
+            // present only on a re-consent re-attach (Gap B), dropped from the wire when null.
+            send(buildAttachSig(signature, acceptedTermsHash))
             state = HState.SENT_ATTACH_SIG
             return null
         }
 
         private fun onAttached(onAttached: () -> Unit): ConnectionResult? {
             state = HState.ATTACHED
+            acceptedTermsHash = null // consumed by the successful attach; a later attach is normal
             _status.value = ConnectorStatus.Connected
             resetBackoff()
             onAttached()
@@ -437,9 +467,10 @@ class PlatformConnector(
 
                 WireError.TERMS_REQUIRED -> {
                     if (state == HState.SENT_ATTACH_SIG || state == HState.ATTACHED) {
-                        // Attach-time: the fresh `terms` frame follows; let onTerms surface + halt.
+                        // Attach-time (Gap B): a fresh `terms` frame follows this refusal; let
+                        // onTerms present it and re-attach with the accepted hash.
                         pendingReAccept = true
-                        _status.value = ConnectorStatus.TermsReacceptanceBlocked
+                        _status.value = ConnectorStatus.ReConsenting
                         null
                     } else {
                         // Accept-time mismatch (terms republished mid-ceremony): re-enrol fresh.
@@ -571,6 +602,24 @@ class PlatformConnector(
 
     companion object {
         private const val TAG = "MCP:Connector"
+
+        /**
+         * Builds the `attach_sig` frame. The [signature] (ed25519 over the nonce) is always
+         * present; [acceptedTermsHash] is included ONLY on a re-consent re-attach (Gap B) and
+         * dropped from the wire when null (ConnectorJson omits nulls). Extracted so the re-attach
+         * contract — that a re-consent emits `terms_hash` and a normal attach does not — is
+         * unit-testable without a live socket.
+         */
+        internal fun buildAttachSig(
+            signature: String,
+            acceptedTermsHash: String?,
+        ): Frame =
+            Frame(
+                type = FrameType.ATTACH_SIG,
+                signature = signature,
+                termsHash = acceptedTermsHash,
+            )
+
         private const val HEARTBEAT_INTERVAL_MS = 30_000L
         private const val CONNECT_TIMEOUT_MS = 15_000L
         private const val NORMAL_CLOSURE = 1000

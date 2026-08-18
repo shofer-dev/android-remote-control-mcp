@@ -10,6 +10,7 @@ import androidx.datastore.preferences.core.stringPreferencesKey
 import com.danielealbano.androidremotecontrolmcp.data.model.BindingAddress
 import com.danielealbano.androidremotecontrolmcp.data.model.BuiltinPermissions
 import com.danielealbano.androidremotecontrolmcp.data.model.ConnectorConfig
+import com.danielealbano.androidremotecontrolmcp.data.model.DevicePolicy
 import com.danielealbano.androidremotecontrolmcp.data.model.EventChannelConfig
 import com.danielealbano.androidremotecontrolmcp.data.model.NotificationFilterMode
 import com.danielealbano.androidremotecontrolmcp.data.model.ServerConfig
@@ -568,6 +569,21 @@ class SettingsRepositoryImpl
             updateConnectorConfig { it.copy(autoStart = enabled) }
         }
 
+        // --- Device policy (last-hop enforcement snapshot, §6.4) ---
+
+        override val devicePolicy: Flow<DevicePolicy> =
+            dataStore.data.map { prefs ->
+                DevicePolicy.fromJsonOrDefault(prefs[DEVICE_POLICY_KEY])
+            }
+
+        override suspend fun getDevicePolicy(): DevicePolicy = devicePolicy.first()
+
+        override suspend fun updateDevicePolicy(policy: DevicePolicy) {
+            dataStore.edit { prefs ->
+                prefs[DEVICE_POLICY_KEY] = policy.toJson()
+            }
+        }
+
         companion object {
             private const val TAG = "MCP:SettingsRepo"
             private const val MAX_LOCATION_ID_LOG_LENGTH = 200
@@ -589,5 +605,6 @@ class SettingsRepositoryImpl
             private val BUILTIN_LOCATION_PERMISSIONS_KEY = stringPreferencesKey("builtin_location_permissions")
             private val EVENT_CHANNEL_CONFIG_KEY = stringPreferencesKey("event_channel_config")
             private val CONNECTOR_CONFIG_KEY = stringPreferencesKey("connector_config")
+            private val DEVICE_POLICY_KEY = stringPreferencesKey("device_policy")
         }
     }

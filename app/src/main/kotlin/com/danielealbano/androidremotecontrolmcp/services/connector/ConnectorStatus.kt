@@ -3,8 +3,8 @@ package com.danielealbano.androidremotecontrolmcp.services.connector
 /**
  * Observable state of the platform connector, collected by the UI and used to drive the
  * foreground notification text. The terminal-until-reconfigured states ([UpgradeRequired],
- * [EnrolmentRejected], [AttachRejected], [TermsReacceptanceBlocked]) stop the reconnect loop
- * deliberately — retrying on those codes loops forever (wire spec §5, §7).
+ * [EnrolmentRejected], [AttachRejected], [TermsDeclined]) stop the reconnect loop deliberately —
+ * retrying on those codes loops forever (wire spec §5, §7).
  */
 sealed interface ConnectorStatus {
     /** No edge host / no way to connect yet — waiting for configuration. */
@@ -42,10 +42,20 @@ sealed interface ConnectorStatus {
     ) : ConnectorStatus
 
     /**
-     * `terms-required` at attach — the platform-side dead end (wire spec Q2): an already
-     * enrolled device cannot re-consent without a fresh pairing code. Surfaced, not retried.
+     * `terms-required` at attach — the platform republished terms and the device must re-consent
+     * (Gap B). The connector presents the fresh terms and, on acceptance, RE-ATTACHES carrying
+     * the accepted hash in `attach_sig` (no pairing code needed). This state is entered while the
+     * user decides.
      */
-    data object TermsReacceptanceBlocked : ConnectorStatus
+    data object ReConsenting : ConnectorStatus
+
+    /**
+     * The user DECLINED the republished terms at re-consent. Terminal until reconfigured — the
+     * device cannot attach without accepting the current terms (wire spec §3.9 order 6).
+     */
+    data class TermsDeclined(
+        val details: String?,
+    ) : ConnectorStatus
 
     /** The connector has been stopped. */
     data object Stopped : ConnectorStatus

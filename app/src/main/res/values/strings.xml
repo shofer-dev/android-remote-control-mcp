@@ -18,6 +18,9 @@
     <string name="connector_terms_title">Enrolment Terms</string>
     <string name="connector_terms_accept">Accept</string>
     <string name="connector_terms_decline">Decline</string>
+    <string name="connector_terms_warning">This device is being enrolled under your organisation\'s governance. By accepting, you acknowledge that the platform may remotely control and manage this device. Read the terms below before continuing.</string>
+    <string name="connector_terms_reaccept_notice">Your organisation has updated the enrolment terms. You must review and re-accept them before this device can continue to operate.</string>
+    <string name="connector_terms_empty">No terms text was provided by the platform.</string>
 
     <!-- App Bar -->
     <string name="app_bar_title">MCP Remote Control</string>

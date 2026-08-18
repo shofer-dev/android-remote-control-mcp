@@ -23,7 +23,7 @@ import com.danielealbano.androidremotecontrolmcp.services.camera.CameraProviderI
 import com.danielealbano.androidremotecontrolmcp.services.channel.EventDispatcher
 import com.danielealbano.androidremotecontrolmcp.services.channel.EventDispatcherImpl
 import com.danielealbano.androidremotecontrolmcp.services.connector.DeviceActionHandler
-import com.danielealbano.androidremotecontrolmcp.services.connector.StubDeviceActionHandler
+import com.danielealbano.androidremotecontrolmcp.services.connector.PlatformDeviceActionHandler
 import com.danielealbano.androidremotecontrolmcp.services.connector.crypto.DeviceIdentity
 import com.danielealbano.androidremotecontrolmcp.services.connector.crypto.KeystoreDeviceIdentity
 import com.danielealbano.androidremotecontrolmcp.services.intents.IntentDispatcher
@@ -186,8 +186,9 @@ abstract class ServiceModule {
     @Singleton
     abstract fun bindDeviceIdentity(impl: KeystoreDeviceIdentity): DeviceIdentity
 
-    // Wave-2 stub; Wave 3 rebinds this to the DeviceAdminReceiver-backed executors.
+    // The DeviceAdminReceiver-backed executors (lock/wipe via DevicePolicyManager, locate via
+    // the flavor-neutral LocationProvider, ring via AudioManager) — §6.4 device-action plane.
     @Binds
     @Singleton
-    abstract fun bindDeviceActionHandler(impl: StubDeviceActionHandler): DeviceActionHandler
+    abstract fun bindDeviceActionHandler(impl: PlatformDeviceActionHandler): DeviceActionHandler
 }

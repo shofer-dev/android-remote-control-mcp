@@ -2,6 +2,7 @@ package com.danielealbano.androidremotecontrolmcp.services.mcp
 
 import com.danielealbano.androidremotecontrolmcp.data.model.ServerConfig
 import com.danielealbano.androidremotecontrolmcp.data.model.ToolPermissionsConfig
+import com.danielealbano.androidremotecontrolmcp.mcp.tools.CuratedToolSurface
 import com.danielealbano.androidremotecontrolmcp.mcp.tools.McpToolUtils
 import com.danielealbano.androidremotecontrolmcp.mcp.tools.registerAppManagementTools
 import com.danielealbano.androidremotecontrolmcp.mcp.tools.registerCameraTools
@@ -83,12 +84,15 @@ class McpToolServerFactory
         private val locationProvider: LocationProvider,
     ) {
         /**
-         * Builds a fully-registered [Server] (all 58 tools) for the given [config]. The
-         * server name and tool-name prefix derive from [ServerConfig.deviceSlug]; the tool set
-         * is gated by [ServerConfig.toolPermissionsConfig].
+         * Builds a registered [Server] for the given [config], curated to the §4 tool surface.
+         * The server name and tool-name prefix derive from [ServerConfig.deviceSlug]; the tool
+         * set is [ServerConfig.toolPermissionsConfig] folded onto the [CuratedToolSurface]
+         * allowlist, so only the sanctioned tools are registered and `tools/list` returns
+         * exactly the curated set regardless of what DataStore holds.
          */
         fun create(config: ServerConfig): Server {
             val toolNamePrefix = McpToolUtils.buildToolNamePrefix(config.deviceSlug)
+            val curatedPerms = config.toolPermissionsConfig.intersectAllowed(CuratedToolSurface.ALLOWLIST)
             val server =
                 Server(
                     serverInfo =
@@ -104,7 +108,7 @@ class McpToolServerFactory
                                 ),
                         ),
                 )
-            registerAllTools(server, toolNamePrefix, config.toolPermissionsConfig)
+            registerAllTools(server, toolNamePrefix, curatedPerms)
             return server
         }
 

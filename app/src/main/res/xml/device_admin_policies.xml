@@ -1,0 +1,14 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!--
+  Device-admin policies the platform connector's device-action plane may exercise
+  (docs/phones/android_remote_control.md §6.4):
+    - force-lock  → DevicePolicyManager.lockNow()  (the `lock` action)
+    - wipe-data   → DevicePolicyManager.wipeData() (the `wipe` action; destructive)
+  `locate` and `ring` are not device-admin policies and are omitted deliberately.
+-->
+<device-admin xmlns:android="http://schemas.android.com/apk/res/android">
+    <uses-policies>
+        <force-lock />
+        <wipe-data />
+    </uses-policies>
+</device-admin>

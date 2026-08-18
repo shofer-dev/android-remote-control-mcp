@@ -111,6 +111,8 @@
             android:exported="false"
             android:excludeFromRecents="true"
             android:launchMode="singleTop"
+            android:showWhenLocked="true"
+            android:turnScreenOn="true"
             android:theme="@style/Theme.AndroidRemoteControlMcp" />
 
         <!-- Accessibility Service -->
@@ -154,6 +156,21 @@
             android:name=".services.mcp.AdbConfigReceiver"
             android:exported="true"
             android:permission="android.permission.DUMP">
+        </receiver>
+
+        <!-- Device Administration Receiver (the lock/wipe device-action plane, §6.4).
+             Activated at enrolment; policies declared in res/xml/device_admin_policies.xml.
+             BIND_DEVICE_ADMIN restricts binding to the OS. -->
+        <receiver
+            android:name=".services.deviceadmin.PlatformDeviceAdminReceiver"
+            android:exported="true"
+            android:permission="android.permission.BIND_DEVICE_ADMIN">
+            <meta-data
+                android:name="android.app.device_admin"
+                android:resource="@xml/device_admin_policies" />
+            <intent-filter>
+                <action android:name="android.app.action.DEVICE_ADMIN_ENABLED" />
+            </intent-filter>
         </receiver>
 
         <!-- Event Channel Service -->
