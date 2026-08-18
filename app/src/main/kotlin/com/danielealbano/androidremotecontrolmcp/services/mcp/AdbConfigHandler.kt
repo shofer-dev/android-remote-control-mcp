@@ -15,6 +15,17 @@ import com.danielealbano.androidremotecontrolmcp.services.storage.StorageLocatio
  *
  * Extracted from [AdbConfigReceiver] to allow unit testing without
  * Hilt's [dagger.hilt.android.AndroidEntryPoint] injection lifecycle.
+ *
+ * Platform-connector extras on `ADB_CONFIGURE`:
+ * - `edge_host` — the device-edge host for the public path (`wss://<host>/ws/device`).
+ * - `gateway_url` — a full `ws://…/ws/device` or `wss://…/ws/device` URL used verbatim, taking
+ *   precedence over `edge_host`. This is the in-cluster path: an emulated device in an
+ *   egress-locked pod reaches its internal gateway service over plain `ws://` with an explicit
+ *   port, which the `edge_host` form cannot express.
+ * - `enrolment_code` — the one-time pairing code.
+ * - `connector_auto_start` — persisted, AND when `true` the connector is STARTED in the same
+ *   broadcast (a `PlatformConnectorService.ACTION_START`), since a configure that turns auto-start
+ *   on is the supervisor's signal to bring the connector up now.
  */
 @Suppress("TooManyFunctions")
 class AdbConfigHandler(
@@ -29,7 +40,7 @@ class AdbConfigHandler(
         intent: Intent,
     ) {
         when (intent.action) {
-            AdbConfigReceiver.ACTION_CONFIGURE -> handleConfigure(intent)
+            AdbConfigReceiver.ACTION_CONFIGURE -> handleConfigure(context, intent)
             AdbConfigReceiver.ACTION_START_SERVER -> handleStartServer(context)
             AdbConfigReceiver.ACTION_STOP_SERVER -> handleStopServer(context)
             AdbConfigReceiver.ACTION_START_CONNECTOR -> handleConnector(context, PlatformConnectorService.ACTION_START)
@@ -38,7 +49,10 @@ class AdbConfigHandler(
         }
     }
 
-    private suspend fun handleConfigure(intent: Intent) {
+    private suspend fun handleConfigure(
+        context: Context,
+        intent: Intent,
+    ) {
         Log.i(TAG, "Received ADB configuration broadcast")
 
         applyBindingAddress(intent)
@@ -52,8 +66,11 @@ class AdbConfigHandler(
         applyToolPermissions(intent)
         applyStorageLocationPermissions(intent)
         applyEdgeHost(intent)
+        applyGatewayUrl(intent)
         applyEnrolmentCode(intent)
-        applyConnectorAutoStart(intent)
+        // Runs LAST so every connector setting above is persisted before the connector starts and
+        // reads its configuration.
+        applyConnectorAutoStart(context, intent)
 
         Log.i(TAG, "ADB configuration applied successfully")
     }
@@ -64,17 +81,32 @@ class AdbConfigHandler(
         Log.i(TAG, "Connector edge host updated")
     }
 
+    private suspend fun applyGatewayUrl(intent: Intent) {
+        val value = intent.getStringExtra(EXTRA_GATEWAY_URL) ?: return
+        settingsRepository.updateConnectorGatewayUrl(value.trim())
+        Log.i(TAG, "Connector gateway URL updated")
+    }
+
     private suspend fun applyEnrolmentCode(intent: Intent) {
         val value = intent.getStringExtra(EXTRA_ENROLMENT_CODE) ?: return
         settingsRepository.updateConnectorEnrolmentCode(value.trim())
         Log.i(TAG, "Connector enrolment code updated")
     }
 
-    private suspend fun applyConnectorAutoStart(intent: Intent) {
+    private suspend fun applyConnectorAutoStart(
+        context: Context,
+        intent: Intent,
+    ) {
         if (!intent.hasExtra(EXTRA_CONNECTOR_AUTO_START)) return
         val value = intent.getBooleanExtra(EXTRA_CONNECTOR_AUTO_START, false)
         settingsRepository.updateConnectorAutoStart(value)
         Log.i(TAG, "Connector auto-start updated to $value")
+        // The flag is not merely recorded: a configure carrying connector_auto_start=true is the
+        // supervisor's signal to bring the connector up now, so start it in the same broadcast.
+        if (value) {
+            Log.i(TAG, "connector_auto_start=true; starting the connector")
+            handleConnector(context, PlatformConnectorService.ACTION_START)
+        }
     }
 
     private fun handleConnector(
@@ -251,6 +283,7 @@ class AdbConfigHandler(
         internal const val EXTRA_STORAGE_ALLOW_WRITE = "storage_allow_write"
         internal const val EXTRA_STORAGE_ALLOW_DELETE = "storage_allow_delete"
         internal const val EXTRA_EDGE_HOST = "edge_host"
+        internal const val EXTRA_GATEWAY_URL = "gateway_url"
         internal const val EXTRA_ENROLMENT_CODE = "enrolment_code"
         internal const val EXTRA_CONNECTOR_AUTO_START = "connector_auto_start"
     }

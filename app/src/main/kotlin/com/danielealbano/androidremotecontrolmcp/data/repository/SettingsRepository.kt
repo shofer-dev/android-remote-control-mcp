@@ -275,6 +275,12 @@ interface SettingsRepository {
     /** Updates the device-edge host (e.g. `devices.justceo.ai`). */
     suspend fun updateConnectorEdgeHost(edgeHost: String)
 
+    /**
+     * Updates the full gateway URL override — a `ws://…/ws/device` or `wss://…/ws/device` URL used
+     * verbatim in preference to the [updateConnectorEdgeHost] fallback. Blank means "no override".
+     */
+    suspend fun updateConnectorGatewayUrl(gatewayUrl: String)
+
     /** Updates the one-time enrolment (pairing) code. */
     suspend fun updateConnectorEnrolmentCode(code: String)
 

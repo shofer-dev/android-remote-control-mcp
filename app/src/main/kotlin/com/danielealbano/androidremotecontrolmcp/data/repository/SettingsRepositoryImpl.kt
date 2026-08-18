@@ -553,6 +553,10 @@ class SettingsRepositoryImpl
             updateConnectorConfig { it.copy(edgeHost = edgeHost) }
         }
 
+        override suspend fun updateConnectorGatewayUrl(gatewayUrl: String) {
+            updateConnectorConfig { it.copy(gatewayUrl = gatewayUrl) }
+        }
+
         override suspend fun updateConnectorEnrolmentCode(code: String) {
             updateConnectorConfig { it.copy(enrolmentCode = code) }
         }

@@ -8,9 +8,17 @@ import kotlinx.serialization.json.Json
 /**
  * Configuration and durable state for the platform connector (the `/ws/device` client).
  *
- * [edgeHost] is the device-edge host only (e.g. `devices.justceo.ai`); the connector dials
- * `wss://<edgeHost>/ws/device`. No host is ever hardcoded — this comes from DataStore, set
- * through the settings UI or the adb broadcast (fork map §10).
+ * The connector resolves its dial target from two fields, in precedence order:
+ * - [gatewayUrl], when non-blank, is used VERBATIM — a full `ws://…/ws/device` or
+ *   `wss://…/ws/device` URL, scheme and explicit port included. This is the in-cluster path: an
+ *   emulated device in an egress-locked pod cannot reach the public edge and must dial its
+ *   internal gateway service directly (plain `ws://` with a port).
+ * - [edgeHost] is the device-edge host only (e.g. `devices.justceo.ai`); when [gatewayUrl] is
+ *   blank the connector falls back to `wss://<edgeHost>/ws/device`. This is the physical/tethered
+ *   path. At least one of the two is required to dial.
+ *
+ * No host or URL is ever hardcoded — both come from DataStore, set through the settings UI or the
+ * adb broadcast (fork map §10).
  *
  * [enrolmentCode] is the ONE-TIME pairing code. It is consumed by a successful enrolment and
  * cleared afterwards ([deviceId] is what every subsequent attach names). [deviceId] is the
@@ -22,6 +30,7 @@ import kotlinx.serialization.json.Json
 @Serializable
 data class ConnectorConfig(
     val edgeHost: String = "",
+    val gatewayUrl: String = "",
     val enrolmentCode: String = "",
     val deviceId: String = "",
     val autoStart: Boolean = false,

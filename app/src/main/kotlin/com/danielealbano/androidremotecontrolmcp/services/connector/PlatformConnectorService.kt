@@ -140,29 +140,12 @@ class PlatformConnectorService : Service() {
         return NotificationCompat
             .Builder(this, McpApplication.CONNECTOR_CHANNEL_ID)
             .setContentTitle(getString(R.string.notification_connector_title))
-            .setContentText(statusText(status))
+            .setContentText(status.notificationLabel)
             .setSmallIcon(R.drawable.ic_notification)
             .setContentIntent(pendingIntent)
             .setOngoing(true)
             .build()
     }
-
-    private fun statusText(status: ConnectorStatus): String =
-        when (status) {
-            ConnectorStatus.NeedsConfig -> "Not configured"
-            ConnectorStatus.Connecting -> "Connecting…"
-            ConnectorStatus.Enrolling -> "Enrolling…"
-            ConnectorStatus.AwaitingTermsConsent -> "Waiting for terms acceptance"
-            ConnectorStatus.Attaching -> "Attaching…"
-            ConnectorStatus.Connected -> "Connected"
-            ConnectorStatus.Reconnecting -> "Reconnecting…"
-            ConnectorStatus.UpgradeRequired -> "Update required"
-            is ConnectorStatus.EnrolmentRejected -> "Enrolment rejected"
-            is ConnectorStatus.AttachRejected -> "Attach rejected"
-            ConnectorStatus.ReConsenting -> "Waiting for terms re-acceptance"
-            is ConnectorStatus.TermsDeclined -> "Terms declined"
-            ConnectorStatus.Stopped -> "Stopped"
-        }
 
     companion object {
         private const val TAG = "MCP:ConnectorService"

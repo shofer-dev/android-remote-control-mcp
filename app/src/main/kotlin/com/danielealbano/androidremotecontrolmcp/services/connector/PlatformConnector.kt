@@ -48,9 +48,16 @@ import java.util.concurrent.TimeUnit
 import kotlin.random.Random
 
 /**
- * The outbound `/ws/device` client: dials the edge, runs the eight-frame enrol/attach
+ * The outbound `/ws/device` client: dials the gateway, runs the eight-frame enrol/attach
  * handshake, and bridges relay `cmd`/`action` frames onto the in-process MCP server and the
  * [DeviceActionHandler] seam. Replaces the removed public tunnel/MCP layer.
+ *
+ * The dial target is resolved by [resolveDialUrl] from [ConnectorConfig] (precedence: a full
+ * `gatewayUrl` used verbatim, else `wss://<edgeHost>/ws/device`). The verbatim path is how an
+ * emulated in-cluster device reaches its internal gateway service — a plain `ws://` URL with an
+ * explicit port, which the public-edge `wss://<host>` form cannot express; physical/tethered
+ * devices take the `edgeHost` fallback. OkHttp handles the `ws://` scheme and the explicit port
+ * with no client-side change.
  *
  * The MCP session is built ONCE ([ensureSession]) and reused across every WebSocket reconnect;
  * see [RelayTransport] for the reasoning. Each socket is a disposable pipe: [runConnection]
@@ -101,9 +108,9 @@ class PlatformConnector(
         try {
             while (scope.isActive) {
                 val config = settingsRepository.getConnectorConfig()
-                if (config.edgeHost.isBlank()) {
+                if (!hasDialTarget(config)) {
                     _status.value = ConnectorStatus.NeedsConfig
-                    Log.i(TAG, "No edge host configured; waiting for configuration")
+                    Log.i(TAG, "No gateway URL or edge host configured; waiting for configuration")
                     awaitConfigChange()
                     continue
                 }
@@ -205,7 +212,17 @@ class PlatformConnector(
                 }
             }
 
-        val url = "wss://${config.edgeHost}/ws/device"
+        val url =
+            when (val resolved = resolveDialUrl(config)) {
+                is DialResolution.Ok -> {
+                    resolved.url
+                }
+
+                is DialResolution.Invalid -> {
+                    Log.e(TAG, "Resolved dial URL has an unsupported scheme; halting: ${resolved.url}")
+                    return ConnectionResult.Halt(ConnectorStatus.Misconfigured("unsupported gateway URL scheme"))
+                }
+            }
         Log.i(TAG, "Dialing $url")
         val ws = client.newWebSocket(Request.Builder().url(url).build(), listener)
         currentSocket = ws
@@ -591,8 +608,57 @@ class PlatformConnector(
         ) : ConnectionResult
     }
 
+    /**
+     * The outcome of resolving a [ConnectorConfig] into a dial URL: either a usable WebSocket URL
+     * or an unsupported scheme that must halt the loop rather than dial garbage.
+     */
+    internal sealed interface DialResolution {
+        /** A valid `ws://` or `wss://` URL to dial. */
+        data class Ok(
+            val url: String,
+        ) : DialResolution
+
+        /** The resolved URL has a scheme that is neither `ws://` nor `wss://`. */
+        data class Invalid(
+            val url: String,
+        ) : DialResolution
+    }
+
     companion object {
         private const val TAG = "MCP:Connector"
+
+        /**
+         * True when [config] carries at least one dial target — a full `gatewayUrl` or an
+         * `edgeHost`. When both are blank there is nothing to dial and the loop waits for
+         * configuration (the [ConnectorStatus.NeedsConfig] guard in [run]).
+         */
+        internal fun hasDialTarget(config: ConnectorConfig): Boolean {
+            val hasGateway = config.gatewayUrl.isNotBlank()
+            return hasGateway || config.edgeHost.isNotBlank()
+        }
+
+        /**
+         * Resolves the dial URL from [config]. Precedence: a non-blank [ConnectorConfig.gatewayUrl]
+         * is used VERBATIM (the in-cluster `ws://host:port/ws/device` path); otherwise the
+         * [ConnectorConfig.edgeHost] fallback yields `wss://<edgeHost>/ws/device` (the
+         * physical/tethered path). The resolved URL must carry a WebSocket scheme — a value whose
+         * scheme is neither `ws://` nor `wss://` is reported as [DialResolution.Invalid] so the
+         * caller halts with [ConnectorStatus.Misconfigured] instead of handing OkHttp a bad URL.
+         * Extracted so the precedence and validation are unit-testable without a live socket.
+         */
+        internal fun resolveDialUrl(config: ConnectorConfig): DialResolution {
+            val url =
+                if (config.gatewayUrl.isNotBlank()) {
+                    config.gatewayUrl
+                } else {
+                    "wss://${config.edgeHost}/ws/device"
+                }
+            return if (url.startsWith("ws://") || url.startsWith("wss://")) {
+                DialResolution.Ok(url)
+            } else {
+                DialResolution.Invalid(url)
+            }
+        }
 
         /**
          * Builds the `attach_sig` frame. The [signature] (ed25519 over the nonce) is always

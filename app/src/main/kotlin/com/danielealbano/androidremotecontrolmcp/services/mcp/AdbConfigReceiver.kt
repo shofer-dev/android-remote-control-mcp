@@ -55,7 +55,15 @@ import javax.inject.Inject
  *   --ez allow_http_downloads false \
  *   --ez allow_unverified_https_certs false \
  *   --ei download_timeout_seconds 60 \
- *   --es device_slug "my_pixel"
+ *   --es device_slug "my_pixel" \
+ *   --es edge_host "devices.justceo.ai" \
+ *   --es gateway_url "ws://device-gateway.justceo.svc.cluster.local:8025/ws/device" \
+ *   --es enrolment_code "one-time-code" \
+ *   --ez connector_auto_start true
+ *
+ * # gateway_url (full ws://…/ws/device or wss://…/ws/device) takes precedence over edge_host
+ * # (which resolves to wss://<edge_host>/ws/device); at least one is required. A configure
+ * # carrying connector_auto_start=true also STARTS the connector in the same broadcast.
  *
  * # Start the MCP server
  * adb shell am broadcast \
