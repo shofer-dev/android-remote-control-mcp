@@ -95,6 +95,24 @@
                 android:value="MCP server providing remote device control" />
         </service>
 
+        <!-- Platform Connector Foreground Service (outbound /ws/device client) -->
+        <service
+            android:name=".services.connector.PlatformConnectorService"
+            android:exported="false"
+            android:foregroundServiceType="specialUse">
+            <property
+                android:name="android.app.PROPERTY_SPECIAL_USE_FGS_SUBTYPE"
+                android:value="Maintains the outbound platform control connection" />
+        </service>
+
+        <!-- Enrolment Terms Activity (mid-handshake consent) -->
+        <activity
+            android:name=".ui.ConnectorTermsActivity"
+            android:exported="false"
+            android:excludeFromRecents="true"
+            android:launchMode="singleTop"
+            android:theme="@style/Theme.AndroidRemoteControlMcp" />
+
         <!-- Accessibility Service -->
         <service
             android:name=".services.accessibility.McpAccessibilityService"

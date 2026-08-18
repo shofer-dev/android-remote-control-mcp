@@ -335,6 +335,9 @@ dependencies {
     implementation(libs.ktor.client.content.negotiation)
     implementation(libs.ktor.serialization.kotlinx.json)
 
+    // OkHttp WebSocket — the platform connector's outbound /ws/device client
+    implementation(libs.okhttp)
+
     // MCP SDK
     implementation(libs.mcp.kotlin.sdk.server)
     runtimeOnly(libs.slf4j.android)
@@ -423,6 +426,10 @@ val jacocoExcludes =
         "**/services/mcp/BootCompletedReceiver*",
         "**/services/screencapture/ScreenCaptureService*",
         "**/services/accessibility/McpAccessibilityService*",
+        // Platform connector: Android-runtime classes (WebSocket/service/keystore) are not
+        // unit-testable on the JVM; the pure logic (crypto, framing, dedupe) IS covered by tests.
+        "**/services/connector/PlatformConnector*",
+        "**/services/connector/crypto/KeystoreDeviceIdentity*",
         // UI layer (requires instrumented/Compose tests)
         "**/ui/**",
         // Dependency injection configuration

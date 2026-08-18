@@ -116,5 +116,7 @@ class AdbConfigReceiver : BroadcastReceiver() {
         const val ACTION_CONFIGURE = "com.danielealbano.androidremotecontrolmcp.ADB_CONFIGURE"
         const val ACTION_START_SERVER = "com.danielealbano.androidremotecontrolmcp.ADB_START_SERVER"
         const val ACTION_STOP_SERVER = "com.danielealbano.androidremotecontrolmcp.ADB_STOP_SERVER"
+        const val ACTION_START_CONNECTOR = "com.danielealbano.androidremotecontrolmcp.ADB_START_CONNECTOR"
+        const val ACTION_STOP_CONNECTOR = "com.danielealbano.androidremotecontrolmcp.ADB_STOP_CONNECTOR"
     }
 }

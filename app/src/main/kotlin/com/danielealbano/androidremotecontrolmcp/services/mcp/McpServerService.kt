@@ -11,47 +11,9 @@ import com.danielealbano.androidremotecontrolmcp.McpApplication
 import com.danielealbano.androidremotecontrolmcp.R
 import com.danielealbano.androidremotecontrolmcp.data.model.ServerLogEntry
 import com.danielealbano.androidremotecontrolmcp.data.model.ServerStatus
-import com.danielealbano.androidremotecontrolmcp.data.model.ToolPermissionsConfig
-import com.danielealbano.androidremotecontrolmcp.data.repository.SettingsRepository
-import com.danielealbano.androidremotecontrolmcp.mcp.tools.McpToolUtils
-import com.danielealbano.androidremotecontrolmcp.mcp.tools.registerAppManagementTools
-import com.danielealbano.androidremotecontrolmcp.mcp.tools.registerCameraTools
-import com.danielealbano.androidremotecontrolmcp.mcp.tools.registerFileTools
-import com.danielealbano.androidremotecontrolmcp.mcp.tools.registerGestureTools
-import com.danielealbano.androidremotecontrolmcp.mcp.tools.registerIntentTools
-import com.danielealbano.androidremotecontrolmcp.mcp.tools.registerLocationTools
-import com.danielealbano.androidremotecontrolmcp.mcp.tools.registerNodeActionTools
-import com.danielealbano.androidremotecontrolmcp.mcp.tools.registerNotificationTools
-import com.danielealbano.androidremotecontrolmcp.mcp.tools.registerScreenIntrospectionTools
-import com.danielealbano.androidremotecontrolmcp.mcp.tools.registerSystemActionTools
-import com.danielealbano.androidremotecontrolmcp.mcp.tools.registerTextInputTools
-import com.danielealbano.androidremotecontrolmcp.mcp.tools.registerTouchActionTools
-import com.danielealbano.androidremotecontrolmcp.mcp.tools.registerUtilityTools
-import com.danielealbano.androidremotecontrolmcp.services.accessibility.AccessibilityNodeCache
-import com.danielealbano.androidremotecontrolmcp.services.accessibility.AccessibilityServiceProvider
-import com.danielealbano.androidremotecontrolmcp.services.accessibility.AccessibilityTreeParser
-import com.danielealbano.androidremotecontrolmcp.services.accessibility.ActionExecutor
-import com.danielealbano.androidremotecontrolmcp.services.accessibility.CompactTreeFormatter
-import com.danielealbano.androidremotecontrolmcp.services.accessibility.ElementFinder
 import com.danielealbano.androidremotecontrolmcp.services.accessibility.ScreenStateSnapshotCache
-import com.danielealbano.androidremotecontrolmcp.services.accessibility.TypeInputController
-import com.danielealbano.androidremotecontrolmcp.services.accessibility.WebViewNodeMerger
-import com.danielealbano.androidremotecontrolmcp.services.apps.AppManager
-import com.danielealbano.androidremotecontrolmcp.services.camera.CameraProvider
-import com.danielealbano.androidremotecontrolmcp.services.intents.IntentDispatcher
-import com.danielealbano.androidremotecontrolmcp.services.location.LocationProvider
-import com.danielealbano.androidremotecontrolmcp.services.notifications.NotificationProvider
-import com.danielealbano.androidremotecontrolmcp.services.screencapture.ScreenCaptureProvider
-import com.danielealbano.androidremotecontrolmcp.services.screencapture.ScreenshotAnnotator
-import com.danielealbano.androidremotecontrolmcp.services.screencapture.ScreenshotEncoder
-import com.danielealbano.androidremotecontrolmcp.services.storage.FileOperationProvider
-import com.danielealbano.androidremotecontrolmcp.services.storage.StorageLocationProvider
 import com.danielealbano.androidremotecontrolmcp.ui.MainActivity
 import dagger.hilt.android.AndroidEntryPoint
-import io.modelcontextprotocol.kotlin.sdk.server.Server
-import io.modelcontextprotocol.kotlin.sdk.server.ServerOptions
-import io.modelcontextprotocol.kotlin.sdk.types.Implementation
-import io.modelcontextprotocol.kotlin.sdk.types.ServerCapabilities
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.SupervisorJob
@@ -67,57 +29,28 @@ import java.util.concurrent.atomic.AtomicBoolean
 import javax.inject.Inject
 
 /**
- * Foreground service that runs the MCP server (HTTP by default, optional HTTPS).
+ * Foreground service that constructs the in-process MCP tool [Server].
+ *
+ * Since the public network layer was removed, this service no longer bolts a transport onto
+ * the Server itself — the platform connector owns the transport (see
+ * [com.danielealbano.androidremotecontrolmcp.services.connector.PlatformConnectorService]).
+ * The Server is now built through [McpToolServerFactory], the single construction+registration
+ * path shared with the connector, so the two never diverge on tool set or name prefix.
  *
  * Lifecycle:
- * 1. Started via intent from MainActivity (start/stop button)
- * 2. Calls startForeground() with persistent notification
- * 3. Reads configuration from SettingsRepository
- * 4. Creates and starts McpServer (Ktor HTTP, optionally HTTPS)
- * 5. Updates ServerStatus via companion-level StateFlow (collected by MainViewModel)
- * 6. On stop: gracefully shuts down server, clears singleton
+ * 1. Started via intent from MainActivity (start/stop button) or the adb path.
+ * 2. Calls startForeground() with a persistent notification.
+ * 3. Reads configuration from SettingsRepository and builds the Server.
+ * 4. Updates ServerStatus via companion-level StateFlow (collected by MainViewModel).
  */
 @AndroidEntryPoint
 class McpServerService : Service() {
-    @Inject lateinit var settingsRepository: SettingsRepository
+    @Inject lateinit var settingsRepository:
+        com.danielealbano.androidremotecontrolmcp.data.repository.SettingsRepository
 
-    @Inject lateinit var actionExecutor: ActionExecutor
-
-    @Inject lateinit var accessibilityServiceProvider: AccessibilityServiceProvider
-
-    @Inject lateinit var screenCaptureProvider: ScreenCaptureProvider
-
-    @Inject lateinit var treeParser: AccessibilityTreeParser
-
-    @Inject lateinit var elementFinder: ElementFinder
-
-    @Inject lateinit var compactTreeFormatter: CompactTreeFormatter
-
-    @Inject lateinit var screenshotAnnotator: ScreenshotAnnotator
-
-    @Inject lateinit var screenshotEncoder: ScreenshotEncoder
-
-    @Inject lateinit var storageLocationProvider: StorageLocationProvider
-
-    @Inject lateinit var fileOperationProvider: FileOperationProvider
-
-    @Inject lateinit var appManager: AppManager
-
-    @Inject lateinit var typeInputController: TypeInputController
-
-    @Inject lateinit var nodeCache: AccessibilityNodeCache
+    @Inject lateinit var mcpToolServerFactory: McpToolServerFactory
 
     @Inject lateinit var screenStateSnapshotCache: ScreenStateSnapshotCache
-
-    @Inject lateinit var webViewNodeMerger: WebViewNodeMerger
-
-    @Inject lateinit var cameraProvider: CameraProvider
-
-    @Inject lateinit var intentDispatcher: IntentDispatcher
-
-    @Inject lateinit var notificationProvider: NotificationProvider
-
-    @Inject lateinit var locationProvider: LocationProvider
 
     private val coroutineScope = CoroutineScope(SupervisorJob() + Dispatchers.IO)
     private val serverActive = AtomicBoolean(false)
@@ -161,32 +94,11 @@ class McpServerService : Service() {
             updateStatus(ServerStatus.Starting)
 
             val config = settingsRepository.getServerConfig()
-            val toolNamePrefix = McpToolUtils.buildToolNamePrefix(config.deviceSlug)
-            Log.i(
-                TAG,
-                "Starting MCP server with config: port=${config.port}, " +
-                    "binding=${config.bindingAddress.address}, toolNamePrefix=$toolNamePrefix",
-            )
+            Log.i(TAG, "Building MCP tool server (deviceSlug='${config.deviceSlug}')")
 
-            // Create the in-process MCP SDK Server instance and register all tools. The transport that
-            // carries JSON-RPC to/from this Server is owned by the platform connector (added in a later
-            // wave); the public network layer that used to bolt a Ktor transport onto it has been removed.
-            val sdkServer =
-                Server(
-                    serverInfo =
-                        Implementation(
-                            name = McpToolUtils.buildServerName(config.deviceSlug),
-                            version = com.danielealbano.androidremotecontrolmcp.BuildConfig.VERSION_NAME,
-                        ),
-                    options =
-                        ServerOptions(
-                            capabilities =
-                                ServerCapabilities(
-                                    tools = ServerCapabilities.Tools(listChanged = false),
-                                ),
-                        ),
-                )
-            registerAllTools(sdkServer, toolNamePrefix, config.toolPermissionsConfig)
+            // Construct + register all tools via the shared factory. The transport that carries
+            // JSON-RPC to/from this Server is owned by the platform connector.
+            mcpToolServerFactory.create(config)
 
             updateStatus(
                 ServerStatus.Running(
@@ -195,71 +107,12 @@ class McpServerService : Service() {
                 ),
             )
 
-            Log.i(TAG, "MCP server started successfully on ${config.bindingAddress.address}:${config.port}")
+            Log.i(TAG, "MCP tool server constructed successfully")
         } catch (e: Exception) {
-            Log.e(TAG, "Failed to start MCP server", e)
+            Log.e(TAG, "Failed to build MCP server", e)
             updateStatus(ServerStatus.Error(e.message ?: "Unknown error starting server"))
             serverActive.set(false)
         }
-    }
-
-    private fun registerAllTools(
-        server: Server,
-        toolNamePrefix: String,
-        perms: ToolPermissionsConfig,
-    ) {
-        registerScreenIntrospectionTools(
-            server,
-            treeParser,
-            accessibilityServiceProvider,
-            screenCaptureProvider,
-            compactTreeFormatter,
-            screenshotAnnotator,
-            screenshotEncoder,
-            nodeCache,
-            screenStateSnapshotCache,
-            webViewNodeMerger,
-            toolNamePrefix,
-            perms,
-        )
-        registerSystemActionTools(server, actionExecutor, accessibilityServiceProvider, toolNamePrefix, perms)
-        registerTouchActionTools(server, actionExecutor, toolNamePrefix, perms)
-        registerGestureTools(server, actionExecutor, toolNamePrefix, perms)
-        registerNodeActionTools(
-            server,
-            treeParser,
-            elementFinder,
-            actionExecutor,
-            accessibilityServiceProvider,
-            nodeCache,
-            toolNamePrefix,
-            perms,
-        )
-        registerTextInputTools(
-            server,
-            treeParser,
-            actionExecutor,
-            accessibilityServiceProvider,
-            typeInputController,
-            nodeCache,
-            toolNamePrefix,
-            perms,
-        )
-        registerUtilityTools(
-            server,
-            treeParser,
-            elementFinder,
-            accessibilityServiceProvider,
-            nodeCache,
-            toolNamePrefix,
-            perms,
-        )
-        registerFileTools(server, storageLocationProvider, fileOperationProvider, toolNamePrefix, perms)
-        registerAppManagementTools(server, appManager, toolNamePrefix, perms)
-        registerCameraTools(server, cameraProvider, fileOperationProvider, toolNamePrefix, perms)
-        registerIntentTools(server, intentDispatcher, toolNamePrefix, perms)
-        registerNotificationTools(server, notificationProvider, toolNamePrefix, perms)
-        registerLocationTools(server, locationProvider, toolNamePrefix, perms)
     }
 
     override fun onDestroy() {
@@ -269,10 +122,8 @@ class McpServerService : Service() {
 
         serverActive.set(false)
 
-        // Cancel coroutine scope
         coroutineScope.cancel()
 
-        // Clear singleton
         instance = null
 
         updateStatus(ServerStatus.Stopped)
@@ -287,6 +138,7 @@ class McpServerService : Service() {
         _serverStatus.value = status
     }
 
+    @Suppress("unused")
     private fun emitLogEntry(entry: ServerLogEntry) {
         _serverLogEvents.tryEmit(entry)
     }
@@ -315,22 +167,9 @@ class McpServerService : Service() {
         const val ACTION_STOP = "com.danielealbano.androidremotecontrolmcp.ACTION_STOP_MCP_SERVER"
         const val NOTIFICATION_ID = 1001
 
-        /**
-         * Shared server status flow. Collected by MainViewModel to update the UI.
-         * Uses a companion-level StateFlow so it survives service rebinding and is
-         * accessible without requiring a bound service reference.
-         */
         private val _serverStatus = MutableStateFlow<ServerStatus>(ServerStatus.Stopped)
         val serverStatus: StateFlow<ServerStatus> = _serverStatus.asStateFlow()
 
-        /**
-         * Shared server log events flow. Collected by MainViewModel to display
-         * log entries in the UI. Uses a SharedFlow (not StateFlow) because each
-         * event is a discrete emission, not a current-state snapshot.
-         *
-         * extraBufferCapacity = 64 prevents dropped events during brief UI
-         * collection pauses (e.g., during configuration changes).
-         */
         private val _serverLogEvents = MutableSharedFlow<ServerLogEntry>(extraBufferCapacity = 64)
         val serverLogEvents: SharedFlow<ServerLogEntry> = _serverLogEvents.asSharedFlow()
 

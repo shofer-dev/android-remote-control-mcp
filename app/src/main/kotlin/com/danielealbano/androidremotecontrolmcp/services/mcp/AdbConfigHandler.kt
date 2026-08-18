@@ -6,6 +6,7 @@ import android.util.Log
 import com.danielealbano.androidremotecontrolmcp.data.model.BindingAddress
 import com.danielealbano.androidremotecontrolmcp.data.model.ToolPermissionsConfig
 import com.danielealbano.androidremotecontrolmcp.data.repository.SettingsRepository
+import com.danielealbano.androidremotecontrolmcp.services.connector.PlatformConnectorService
 import com.danielealbano.androidremotecontrolmcp.services.storage.StorageLocationProvider
 
 /**
@@ -31,6 +32,8 @@ class AdbConfigHandler(
             AdbConfigReceiver.ACTION_CONFIGURE -> handleConfigure(intent)
             AdbConfigReceiver.ACTION_START_SERVER -> handleStartServer(context)
             AdbConfigReceiver.ACTION_STOP_SERVER -> handleStopServer(context)
+            AdbConfigReceiver.ACTION_START_CONNECTOR -> handleConnector(context, PlatformConnectorService.ACTION_START)
+            AdbConfigReceiver.ACTION_STOP_CONNECTOR -> handleConnector(context, PlatformConnectorService.ACTION_STOP)
             else -> Log.w(TAG, "Ignoring unexpected action: ${intent.action}")
         }
     }
@@ -48,8 +51,40 @@ class AdbConfigHandler(
         applyDeviceSlug(intent)
         applyToolPermissions(intent)
         applyStorageLocationPermissions(intent)
+        applyEdgeHost(intent)
+        applyEnrolmentCode(intent)
+        applyConnectorAutoStart(intent)
 
         Log.i(TAG, "ADB configuration applied successfully")
+    }
+
+    private suspend fun applyEdgeHost(intent: Intent) {
+        val value = intent.getStringExtra(EXTRA_EDGE_HOST) ?: return
+        settingsRepository.updateConnectorEdgeHost(value.trim())
+        Log.i(TAG, "Connector edge host updated")
+    }
+
+    private suspend fun applyEnrolmentCode(intent: Intent) {
+        val value = intent.getStringExtra(EXTRA_ENROLMENT_CODE) ?: return
+        settingsRepository.updateConnectorEnrolmentCode(value.trim())
+        Log.i(TAG, "Connector enrolment code updated")
+    }
+
+    private suspend fun applyConnectorAutoStart(intent: Intent) {
+        if (!intent.hasExtra(EXTRA_CONNECTOR_AUTO_START)) return
+        val value = intent.getBooleanExtra(EXTRA_CONNECTOR_AUTO_START, false)
+        settingsRepository.updateConnectorAutoStart(value)
+        Log.i(TAG, "Connector auto-start updated to $value")
+    }
+
+    private fun handleConnector(
+        context: Context,
+        action: String,
+    ) {
+        Log.i(TAG, "Received ADB connector broadcast: $action")
+        val serviceIntent =
+            Intent(context, PlatformConnectorService::class.java).apply { this.action = action }
+        context.startForegroundService(serviceIntent)
     }
 
     private suspend fun applyBindingAddress(intent: Intent) {
@@ -215,5 +250,8 @@ class AdbConfigHandler(
         internal const val EXTRA_STORAGE_LOCATION_ID = "storage_location_id"
         internal const val EXTRA_STORAGE_ALLOW_WRITE = "storage_allow_write"
         internal const val EXTRA_STORAGE_ALLOW_DELETE = "storage_allow_delete"
+        internal const val EXTRA_EDGE_HOST = "edge_host"
+        internal const val EXTRA_ENROLMENT_CODE = "enrolment_code"
+        internal const val EXTRA_CONNECTOR_AUTO_START = "connector_auto_start"
     }
 }

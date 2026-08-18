@@ -9,6 +9,7 @@ import androidx.datastore.preferences.core.intPreferencesKey
 import androidx.datastore.preferences.core.stringPreferencesKey
 import com.danielealbano.androidremotecontrolmcp.data.model.BindingAddress
 import com.danielealbano.androidremotecontrolmcp.data.model.BuiltinPermissions
+import com.danielealbano.androidremotecontrolmcp.data.model.ConnectorConfig
 import com.danielealbano.androidremotecontrolmcp.data.model.EventChannelConfig
 import com.danielealbano.androidremotecontrolmcp.data.model.NotificationFilterMode
 import com.danielealbano.androidremotecontrolmcp.data.model.ServerConfig
@@ -531,6 +532,42 @@ class SettingsRepositoryImpl
         override suspend fun updateWifiNotifyOnDisconnected(enabled: Boolean) =
             updateEventChannelConfig { it.copy(wifi = it.wifi.copy(notifyOnDisconnected = enabled)) }
 
+        // --- Platform Connector ---
+
+        override val connectorConfig: Flow<ConnectorConfig> =
+            dataStore.data.map { prefs ->
+                ConnectorConfig.fromJsonOrDefault(prefs[CONNECTOR_CONFIG_KEY])
+            }
+
+        override suspend fun getConnectorConfig(): ConnectorConfig = connectorConfig.first()
+
+        private suspend fun updateConnectorConfig(transform: (ConnectorConfig) -> ConnectorConfig) {
+            val current = getConnectorConfig()
+            val updated = transform(current)
+            dataStore.edit { prefs ->
+                prefs[CONNECTOR_CONFIG_KEY] = updated.toJson()
+            }
+        }
+
+        override suspend fun updateConnectorEdgeHost(edgeHost: String) {
+            updateConnectorConfig { it.copy(edgeHost = edgeHost) }
+        }
+
+        override suspend fun updateConnectorEnrolmentCode(code: String) {
+            updateConnectorConfig { it.copy(enrolmentCode = code) }
+        }
+
+        override suspend fun updateConnectorEnrolled(deviceId: String) {
+            // The pairing code is single-use and spent by a successful enrolment — clear it so a
+            // reconnect attaches with the durable device id rather than re-redeeming (which the
+            // platform would refuse as code-unusable).
+            updateConnectorConfig { it.copy(deviceId = deviceId, enrolmentCode = "") }
+        }
+
+        override suspend fun updateConnectorAutoStart(enabled: Boolean) {
+            updateConnectorConfig { it.copy(autoStart = enabled) }
+        }
+
         companion object {
             private const val TAG = "MCP:SettingsRepo"
             private const val MAX_LOCATION_ID_LOG_LENGTH = 200
@@ -551,5 +588,6 @@ class SettingsRepositoryImpl
             private val AUTHORIZED_LOCATIONS_KEY = stringPreferencesKey("authorized_storage_locations")
             private val BUILTIN_LOCATION_PERMISSIONS_KEY = stringPreferencesKey("builtin_location_permissions")
             private val EVENT_CHANNEL_CONFIG_KEY = stringPreferencesKey("event_channel_config")
+            private val CONNECTOR_CONFIG_KEY = stringPreferencesKey("connector_config")
         }
     }

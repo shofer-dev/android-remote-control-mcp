@@ -6,6 +6,7 @@ import android.content.Intent
 import android.util.Log
 import com.danielealbano.androidremotecontrolmcp.data.repository.SettingsRepository
 import com.danielealbano.androidremotecontrolmcp.services.channel.EventChannelService
+import com.danielealbano.androidremotecontrolmcp.services.connector.PlatformConnectorService
 import dagger.hilt.android.AndroidEntryPoint
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
@@ -63,6 +64,18 @@ class BootCompletedReceiver : BroadcastReceiver() {
                             }
                         context.startForegroundService(channelIntent)
                         Log.i(TAG, "Event channel auto-started on boot")
+                    }
+
+                    // Platform connector auto-start (only once enrolled or holding a code)
+                    val connectorConfig = settingsRepository.getConnectorConfig()
+                    val hasCredential = connectorConfig.isEnrolled || connectorConfig.enrolmentCode.isNotBlank()
+                    if (connectorConfig.autoStart && connectorConfig.edgeHost.isNotBlank() && hasCredential) {
+                        val connectorIntent =
+                            Intent(context, PlatformConnectorService::class.java).apply {
+                                action = PlatformConnectorService.ACTION_START
+                            }
+                        context.startForegroundService(connectorIntent)
+                        Log.i(TAG, "Platform connector auto-started on boot")
                     }
                 }
             } catch (e: Exception) {

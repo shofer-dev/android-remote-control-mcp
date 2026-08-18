@@ -11,6 +11,14 @@
     <!-- Notification Content -->
     <string name="notification_mcp_server_title">MCP Server Running</string>
 
+    <!-- Platform Connector -->
+    <string name="notification_channel_connector_id">connector_channel</string>
+    <string name="notification_channel_connector_name">Platform Connector</string>
+    <string name="notification_connector_title">Platform Connector</string>
+    <string name="connector_terms_title">Enrolment Terms</string>
+    <string name="connector_terms_accept">Accept</string>
+    <string name="connector_terms_decline">Decline</string>
+
     <!-- App Bar -->
     <string name="app_bar_title">MCP Remote Control</string>
 

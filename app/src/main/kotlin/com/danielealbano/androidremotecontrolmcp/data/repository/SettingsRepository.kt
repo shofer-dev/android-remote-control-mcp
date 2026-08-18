@@ -2,6 +2,7 @@ package com.danielealbano.androidremotecontrolmcp.data.repository
 
 import com.danielealbano.androidremotecontrolmcp.data.model.BindingAddress
 import com.danielealbano.androidremotecontrolmcp.data.model.BuiltinPermissions
+import com.danielealbano.androidremotecontrolmcp.data.model.ConnectorConfig
 import com.danielealbano.androidremotecontrolmcp.data.model.EventChannelConfig
 import com.danielealbano.androidremotecontrolmcp.data.model.NotificationFilterMode
 import com.danielealbano.androidremotecontrolmcp.data.model.ServerConfig
@@ -262,4 +263,24 @@ interface SettingsRepository {
 
     /** Updates the WiFi notify on disconnected toggle. */
     suspend fun updateWifiNotifyOnDisconnected(enabled: Boolean)
+
+    // --- Platform Connector ---
+
+    /** Observes the current platform-connector configuration. */
+    val connectorConfig: Flow<ConnectorConfig>
+
+    /** Returns the current platform-connector configuration as a one-shot read. */
+    suspend fun getConnectorConfig(): ConnectorConfig
+
+    /** Updates the device-edge host (e.g. `devices.justceo.ai`). */
+    suspend fun updateConnectorEdgeHost(edgeHost: String)
+
+    /** Updates the one-time enrolment (pairing) code. */
+    suspend fun updateConnectorEnrolmentCode(code: String)
+
+    /** Persists the device id returned by `enrolled` and clears the spent enrolment code. */
+    suspend fun updateConnectorEnrolled(deviceId: String)
+
+    /** Updates the connector auto-start toggle. */
+    suspend fun updateConnectorAutoStart(enabled: Boolean)
 }

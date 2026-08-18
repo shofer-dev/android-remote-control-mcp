@@ -22,6 +22,10 @@ import com.danielealbano.androidremotecontrolmcp.services.camera.CameraProvider
 import com.danielealbano.androidremotecontrolmcp.services.camera.CameraProviderImpl
 import com.danielealbano.androidremotecontrolmcp.services.channel.EventDispatcher
 import com.danielealbano.androidremotecontrolmcp.services.channel.EventDispatcherImpl
+import com.danielealbano.androidremotecontrolmcp.services.connector.DeviceActionHandler
+import com.danielealbano.androidremotecontrolmcp.services.connector.StubDeviceActionHandler
+import com.danielealbano.androidremotecontrolmcp.services.connector.crypto.DeviceIdentity
+import com.danielealbano.androidremotecontrolmcp.services.connector.crypto.KeystoreDeviceIdentity
 import com.danielealbano.androidremotecontrolmcp.services.intents.IntentDispatcher
 import com.danielealbano.androidremotecontrolmcp.services.intents.IntentDispatcherImpl
 import com.danielealbano.androidremotecontrolmcp.services.notifications.NotificationProvider
@@ -175,4 +179,15 @@ abstract class ServiceModule {
     @Binds
     @Singleton
     abstract fun bindSharedContentInbox(impl: SharedContentInboxImpl): SharedContentInbox
+
+    // --- Platform Connector ---
+
+    @Binds
+    @Singleton
+    abstract fun bindDeviceIdentity(impl: KeystoreDeviceIdentity): DeviceIdentity
+
+    // Wave-2 stub; Wave 3 rebinds this to the DeviceAdminReceiver-backed executors.
+    @Binds
+    @Singleton
+    abstract fun bindDeviceActionHandler(impl: StubDeviceActionHandler): DeviceActionHandler
 }

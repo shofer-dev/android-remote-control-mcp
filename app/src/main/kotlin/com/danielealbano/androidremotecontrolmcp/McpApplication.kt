@@ -46,10 +46,22 @@ class McpApplication : Application() {
             }
 
         notificationManager.createNotificationChannel(mcpServerChannel)
+
+        val connectorChannel =
+            NotificationChannel(
+                CONNECTOR_CHANNEL_ID,
+                getString(R.string.notification_channel_connector_name),
+                NotificationManager.IMPORTANCE_LOW,
+            ).apply {
+                description = "Notification for the platform connector"
+            }
+
+        notificationManager.createNotificationChannel(connectorChannel)
     }
 
     companion object {
         private const val TAG = "MCP:Application"
         const val MCP_SERVER_CHANNEL_ID = "mcp_server_channel"
+        const val CONNECTOR_CHANNEL_ID = "connector_channel"
     }
 }

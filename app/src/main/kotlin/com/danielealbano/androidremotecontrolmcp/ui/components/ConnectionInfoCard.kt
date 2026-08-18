@@ -1,4 +1,4 @@
-@file:Suppress("FunctionNaming", "LongMethod")
+@file:Suppress("FunctionNaming", "LongMethod", "LongParameterList", "UnusedPrivateMember")
 
 package com.danielealbano.androidremotecontrolmcp.ui.components
 
