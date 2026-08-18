@@ -2,14 +2,11 @@ package com.danielealbano.androidremotecontrolmcp.data.repository
 
 import com.danielealbano.androidremotecontrolmcp.data.model.BindingAddress
 import com.danielealbano.androidremotecontrolmcp.data.model.BuiltinPermissions
-import com.danielealbano.androidremotecontrolmcp.data.model.CertificateSource
-import com.danielealbano.androidremotecontrolmcp.data.model.CloudflareTunnelMode
 import com.danielealbano.androidremotecontrolmcp.data.model.EventChannelConfig
 import com.danielealbano.androidremotecontrolmcp.data.model.NotificationFilterMode
 import com.danielealbano.androidremotecontrolmcp.data.model.ServerConfig
 import com.danielealbano.androidremotecontrolmcp.data.model.StorageLocation
 import com.danielealbano.androidremotecontrolmcp.data.model.ToolPermissionsConfig
-import com.danielealbano.androidremotecontrolmcp.data.model.TunnelProviderType
 import kotlinx.coroutines.flow.Flow
 
 /**
@@ -29,8 +26,6 @@ interface SettingsRepository {
 
     /**
      * Returns the current server configuration as a one-shot read.
-     * Runs [ensureAuthModelMigrated] first, so the one-time bearer-enabled migration and the
-     * bearer-token auto-generation have applied before the auth model is read.
      */
     suspend fun getServerConfig(): ServerConfig
 
@@ -44,76 +39,8 @@ interface SettingsRepository {
     /** Updates the network binding address. */
     suspend fun updateBindingAddress(bindingAddress: BindingAddress)
 
-    /**
-     * Updates the bearer token used for MCP request authentication.
-     * Passing an empty string clears the value. Whether bearer authentication is enforced is controlled
-     * by [updateBearerTokenEnabled], not by the value: clearing the token while bearer is enabled makes
-     * `/mcp` fail closed (401) until a token is set or bearer is disabled.
-     *
-     * @param token The new bearer token value (empty string clears the value).
-     */
-    suspend fun updateBearerToken(token: String)
-
-    /**
-     * Generates a new random bearer token (UUID), persists it, and returns
-     * the generated value.
-     *
-     * @return The newly generated bearer token.
-     */
-    suspend fun generateNewBearerToken(): String
-
-    /** Enables or disables the self-contained OAuth 2.1 authorization server. */
-    suspend fun updateOauthEnabled(enabled: Boolean)
-
-    /**
-     * Enables or disables static bearer-token authentication.
-     *
-     * Enabling with an empty stored value auto-generates a token; disabling preserves the stored value
-     * (re-enabling restores it).
-     */
-    suspend fun updateBearerTokenEnabled(enabled: Boolean)
-
-    /** Updates the optional public-URL override (empty = auto-detect from the request). */
-    suspend fun updatePublicUrlOverride(url: String)
-
-    /**
-     * Validates a public-URL override.
-     *
-     * UNLIKE [validateEndpointUrl] (which rejects blank), an empty value IS valid here and means
-     * auto-detect → [Result.success] with `""`; otherwise the same http/https protocol check applies.
-     *
-     * This is a pure validation function with no I/O; it is intentionally non-suspending.
-     *
-     * @return [Result.success] with the validated URL (possibly empty), or [Result.failure].
-     */
-    fun validatePublicUrlOverride(url: String): Result<String>
-
-    /**
-     * Runs the one-time bearer-enabled migration AND the bearer-token auto-generation.
-     *
-     * Idempotent; MUST be invoked before the auth model is consumed by the server or the UI so a
-     * previously-cleared-token user is not regressed into a token-required state.
-     */
-    suspend fun ensureAuthModelMigrated()
-
-    /** Returns a stable base64url HS256 signing secret, generated once (SecureRandom) on first read. */
-    suspend fun getOrCreateJwtSigningSecret(): String
-
     /** Updates the auto-start-on-boot preference. */
     suspend fun updateAutoStartOnBoot(enabled: Boolean)
-
-    /** Updates the HTTPS enabled toggle. */
-    suspend fun updateHttpsEnabled(enabled: Boolean)
-
-    /** Updates the HTTPS certificate source. */
-    suspend fun updateCertificateSource(source: CertificateSource)
-
-    /**
-     * Updates the hostname used for auto-generated HTTPS certificates.
-     *
-     * @param hostname The new hostname. Must pass [validateCertificateHostname] first.
-     */
-    suspend fun updateCertificateHostname(hostname: String)
 
     /**
      * Validates a port number.
@@ -124,34 +51,6 @@ interface SettingsRepository {
      * @return [Result.success] with the validated port, or [Result.failure] with an [IllegalArgumentException].
      */
     fun validatePort(port: Int): Result<Int>
-
-    /**
-     * Validates a certificate hostname.
-     *
-     * This is a pure validation function with no I/O; it is intentionally
-     * non-suspending so callers are not forced into a coroutine context.
-     *
-     * @return [Result.success] with the validated hostname, or [Result.failure] with an [IllegalArgumentException].
-     */
-    fun validateCertificateHostname(hostname: String): Result<String>
-
-    /** Updates the tunnel enabled toggle. */
-    suspend fun updateTunnelEnabled(enabled: Boolean)
-
-    /** Updates the tunnel provider type. */
-    suspend fun updateTunnelProvider(provider: TunnelProviderType)
-
-    /** Updates the ngrok authtoken. */
-    suspend fun updateNgrokAuthtoken(authtoken: String)
-
-    /** Updates the ngrok domain (optional, empty string means auto-assigned). */
-    suspend fun updateNgrokDomain(domain: String)
-
-    /** Updates the Cloudflare tunnel mode (Free quick tunnel vs token-based named tunnel). */
-    suspend fun updateCloudflareTunnelMode(mode: CloudflareTunnelMode)
-
-    /** Updates the Cloudflare tunnel token (required when using token mode). */
-    suspend fun updateCloudflareTunnelToken(token: String)
 
     /** Updates the file size limit for file operations (in MB). */
     suspend fun updateFileSizeLimit(limitMb: Int)

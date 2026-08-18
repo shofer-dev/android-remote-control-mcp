@@ -62,7 +62,6 @@ fun ServerScreen(
     val serverConfig by viewModel.serverConfig.collectAsStateWithLifecycle()
     val serverStatus by viewModel.serverStatus.collectAsStateWithLifecycle()
     val serverLogs by viewModel.serverLogs.collectAsStateWithLifecycle()
-    val tunnelStatus by viewModel.tunnelStatus.collectAsStateWithLifecycle()
 
     val isAccessibilityEnabled by viewModel.isAccessibilityEnabled.collectAsStateWithLifecycle()
     val isNotificationPermissionGranted by viewModel.isNotificationPermissionGranted.collectAsStateWithLifecycle()
@@ -101,11 +100,6 @@ fun ServerScreen(
                 Spacer(Modifier.height(16.dp))
             }
 
-            if (!serverConfig.oauthEnabled && !serverConfig.bearerTokenEnabled) {
-                NoAuthWarningCard()
-                Spacer(Modifier.height(16.dp))
-            }
-
             ServerStatusCard(
                 serverStatus = serverStatus,
                 channelStatus = channelStatus,
@@ -128,11 +122,6 @@ fun ServerScreen(
                 bindingAddress = serverConfig.bindingAddress,
                 ipAddress = deviceIp,
                 port = serverConfig.port,
-                httpsEnabled = serverConfig.httpsEnabled,
-                bearerToken = serverConfig.bearerToken,
-                tunnelEnabled = serverConfig.tunnelEnabled,
-                serverStatus = serverStatus,
-                tunnelStatus = tunnelStatus,
                 onCopyAll = { text ->
                     clipboardManager.setText(AnnotatedString(text))
                     Toast.makeText(context, copiedToClipboardMessage, Toast.LENGTH_SHORT).show()
@@ -166,28 +155,6 @@ fun ServerScreen(
                 }
             },
         )
-    }
-}
-
-@Composable
-private fun NoAuthWarningCard() {
-    ElevatedCard(modifier = Modifier.fillMaxWidth()) {
-        Row(
-            modifier = Modifier.padding(16.dp),
-            verticalAlignment = Alignment.CenterVertically,
-        ) {
-            Icon(
-                imageVector = Icons.Default.Warning,
-                contentDescription = null,
-                tint = MaterialTheme.colorScheme.error,
-            )
-            Spacer(Modifier.width(12.dp))
-            Text(
-                text = stringResource(R.string.access_no_auth_warning_body),
-                style = MaterialTheme.typography.bodyMedium,
-                color = MaterialTheme.colorScheme.onSurface,
-            )
-        }
     }
 }
 

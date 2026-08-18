@@ -10,17 +10,13 @@ import androidx.navigation.compose.NavHost
 import androidx.navigation.compose.composable
 import androidx.navigation.compose.rememberNavController
 import com.danielealbano.androidremotecontrolmcp.ui.navigation.SettingsRoute
-import com.danielealbano.androidremotecontrolmcp.ui.screens.settings.AccessSettingsScreen
 import com.danielealbano.androidremotecontrolmcp.ui.screens.settings.ChannelSettingsScreen
 import com.danielealbano.androidremotecontrolmcp.ui.screens.settings.GeneralSettingsScreen
 import com.danielealbano.androidremotecontrolmcp.ui.screens.settings.McpToolsSettingsScreen
 import com.danielealbano.androidremotecontrolmcp.ui.screens.settings.NotificationFilterScreen
-import com.danielealbano.androidremotecontrolmcp.ui.screens.settings.OAuthClientsScreen
 import com.danielealbano.androidremotecontrolmcp.ui.screens.settings.PermissionsSettingsScreen
-import com.danielealbano.androidremotecontrolmcp.ui.screens.settings.SecuritySettingsScreen
 import com.danielealbano.androidremotecontrolmcp.ui.screens.settings.SettingsIndexScreen
 import com.danielealbano.androidremotecontrolmcp.ui.screens.settings.StorageSettingsScreen
-import com.danielealbano.androidremotecontrolmcp.ui.screens.settings.TunnelSettingsScreen
 import com.danielealbano.androidremotecontrolmcp.ui.screens.settings.WifiMonitorScreen
 import com.danielealbano.androidremotecontrolmcp.ui.screens.settings.geofenceDestinations
 import com.danielealbano.androidremotecontrolmcp.ui.viewmodels.ChannelViewModel
@@ -59,21 +55,6 @@ fun SettingsScreen(
         }
         composable(SettingsRoute.General.route) {
             GeneralSettingsScreen(onBack = { navController.popBackStack() }, viewModel = viewModel)
-        }
-        composable(SettingsRoute.Access.route) {
-            AccessSettingsScreen(
-                onBack = { navController.popBackStack() },
-                onNavigateClients = { navController.navigate(SettingsRoute.OAuthClients.route) },
-            )
-        }
-        composable(SettingsRoute.OAuthClients.route) {
-            OAuthClientsScreen(onBack = { navController.popBackStack() })
-        }
-        composable(SettingsRoute.Security.route) {
-            SecuritySettingsScreen(onBack = { navController.popBackStack() }, viewModel = viewModel)
-        }
-        composable(SettingsRoute.Tunnel.route) {
-            TunnelSettingsScreen(onBack = { navController.popBackStack() }, viewModel = viewModel)
         }
         composable(SettingsRoute.McpTools.route) {
             McpToolsSettingsScreen(onBack = { navController.popBackStack() })

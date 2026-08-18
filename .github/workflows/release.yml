@@ -24,7 +24,6 @@ jobs:
         uses: actions/checkout@v7
         with:
           fetch-depth: 0
-          submodules: true
 
       # ── 2. Warn if tagged commit is not on main ──
       - name: Verify tagged commit is on main
@@ -101,67 +100,7 @@ jobs:
       - name: Set up Gradle
         uses: gradle/actions/setup-gradle@v6
 
-      # ── 6. Compile native dependencies (cached by submodule content) ──
-      - name: Cache cloudflared Android native
-        id: cache-cloudflared
-        uses: actions/cache@v6
-        with:
-          path: |
-            app/src/main/jniLibs/arm64-v8a/libcloudflared.so
-            app/src/main/jniLibs/x86_64/libcloudflared.so
-          key: cloudflared-android-${{ runner.os }}-${{ hashFiles('.gitmodules', 'vendor/cloudflared/**/*.go', 'vendor/cloudflared/go.sum') }}
-
-      - name: Cache ngrok-java Android native
-        id: cache-ngrok-android
-        uses: actions/cache@v6
-        with:
-          path: |
-            app/src/main/jniLibs/arm64-v8a/libngrok_java.so
-            app/src/main/jniLibs/x86_64/libngrok_java.so
-            vendor/ngrok-java/ngrok-java/target/ngrok-java-1.2.0-SNAPSHOT.jar
-            vendor/ngrok-java/ngrok-java-native/target/ngrok-java-native-classes.jar
-          key: ngrok-android-v2-${{ runner.os }}-${{ hashFiles('.gitmodules', 'vendor/ngrok-java/**/*.toml', 'vendor/ngrok-java/**/pom.xml', 'vendor/ngrok-java/ngrok-java-native/src/**') }}
-
-      - name: Set up Go
-        if: steps.cache-cloudflared.outputs.cache-hit != 'true'
-        uses: actions/setup-go@v7
-        with:
-          go-version: '1.25.6'
-
-      - name: Set up Rust
-        if: steps.cache-ngrok-android.outputs.cache-hit != 'true'
-        uses: dtolnay/rust-toolchain@stable
-        with:
-          targets: aarch64-linux-android,x86_64-linux-android
-
-      - name: Compile cloudflared for Android
-        if: steps.cache-cloudflared.outputs.cache-hit != 'true'
-        run: make compile-cloudflared
-
-      - name: Compile ngrok-java native for Android
-        if: steps.cache-ngrok-android.outputs.cache-hit != 'true'
-        run: make compile-ngrok-native
-        env:
-          JAVA_11_HOME: ${{ env.JAVA_HOME }}
-          JAVA_17_HOME: ${{ env.JAVA_HOME }}
-
-      # ── 7. Geolocation DB toolchain (generated at build time from DB-IP City Lite) ──
-      - name: Set up Python (geolocation DB generator)
-        uses: actions/setup-python@v6
-        with:
-          python-version: '3.12'
-
-      - name: Compute DB-IP month
-        id: dbip-month
-        run: echo "month=$(date +%Y-%m)" >> "$GITHUB_OUTPUT"
-
-      - name: Cache DB-IP source CSV
-        uses: actions/cache@v6
-        with:
-          path: .dbip-cache
-          key: dbip-csv-${{ steps.dbip-month.outputs.month }}
-
-      # ── 8. Decode the release keystore and write signing config so the release APKs are signed.
+      # ── 6. Decode the release keystore and write signing config so the release APKs are signed.
       #      app/build.gradle.kts applies the release signingConfig only when keystore.properties
       #      exists at the repo root; without this step the release APKs build unsigned. ──
       - name: Decode release keystore

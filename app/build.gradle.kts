@@ -1,8 +1,5 @@
-import org.gradle.process.ExecOperations
 import java.io.FileInputStream
-import java.time.YearMonth
 import java.util.Properties
-import javax.inject.Inject
 
 plugins {
     alias(libs.plugins.android.application)
@@ -280,12 +277,8 @@ android {
         resources {
             excludes += "/META-INF/{AL2.0,LGPL2.1}"
             excludes += "/META-INF/INDEX.LIST"
-            excludes += "/META-INF/io.netty.*"
             excludes += "/META-INF/LICENSE.md"
             excludes += "/META-INF/LICENSE-notice.md"
-        }
-        jniLibs {
-            useLegacyPackaging = true
         }
     }
 }
@@ -337,60 +330,14 @@ dependencies {
     // OpenStreetMap
     implementation(libs.osmdroid)
 
-    // Ktor Server
-    implementation(libs.ktor.server.core)
-    implementation(libs.ktor.server.netty)
-    implementation(libs.ktor.server.content.negotiation)
-    implementation(libs.ktor.server.cors)
-    implementation(libs.ktor.network.tls.certificates)
-    implementation(libs.ktor.serialization.kotlinx.json)
-
     // Ktor Client (Event Channel dispatcher — no Logging plugin, it would expose auth token)
     implementation(libs.ktor.client.okhttp)
     implementation(libs.ktor.client.content.negotiation)
-
-    // Force patched Netty: Ktor's server engine ships netty 4.2.9, which is vulnerable.
-    // Covers the HTTP Request Smuggling / HTTP/2 CONTINUATION-flood CVEs (CVE-2026-33870,
-    // CVE-2026-33871) plus the native-transport advisories that the engine also pulls onto the
-    // release classpath: epoll DoS (GHSA-rwm7-x88c-3g2p) and the epoll/kqueue fd leak
-    // (GHSA-w573-9ffj-6ff9). All netty modules are pinned to the same version to avoid skew.
-    constraints {
-        implementation("io.netty:netty-codec-http:4.2.16.Final")
-        implementation("io.netty:netty-codec-http2:4.2.16.Final")
-        implementation("io.netty:netty-handler:4.2.16.Final")
-        implementation("io.netty:netty-common:4.2.16.Final")
-        implementation("io.netty:netty-buffer:4.2.16.Final")
-        implementation("io.netty:netty-transport:4.2.16.Final")
-        implementation("io.netty:netty-codec-base:4.2.16.Final")
-        implementation("io.netty:netty-codec-compression:4.2.16.Final")
-        implementation("io.netty:netty-resolver:4.2.16.Final")
-        implementation("io.netty:netty-transport-native-unix-common:4.2.16.Final")
-        implementation("io.netty:netty-transport-classes-epoll:4.2.16.Final")
-        implementation("io.netty:netty-transport-native-epoll:4.2.16.Final")
-        implementation("io.netty:netty-transport-classes-kqueue:4.2.16.Final")
-        implementation("io.netty:netty-transport-native-kqueue:4.2.16.Final")
-    }
-
-    // Certificate generation (Bouncy Castle for self-signed cert with SAN support)
-    implementation(libs.bouncy.castle.pkix)
-    implementation(libs.bouncy.castle.prov)
-
-    // ngrok tunnel (in-process, JNI-based) — built from source via vendor/ngrok-java submodule
-    // ngrok-java: API module (interfaces, builders, Session)
-    implementation(files("../vendor/ngrok-java/ngrok-java/target/ngrok-java-1.2.0-SNAPSHOT.jar"))
-    // ngrok-java-native: implementation classes (NativeSession, Runtime, etc.)
-    implementation(files("../vendor/ngrok-java/ngrok-java-native/target/ngrok-java-native-classes.jar"))
+    implementation(libs.ktor.serialization.kotlinx.json)
 
     // MCP SDK
     implementation(libs.mcp.kotlin.sdk.server)
     runtimeOnly(libs.slf4j.android)
-
-    // OAuth (JWT signing/verification)
-    implementation(libs.java.jwt)
-
-    // OAuth client logos (SSRF-guarded remote image loading)
-    implementation(libs.coil.compose)
-    implementation(libs.coil.network)
 
     // Kotlinx
     implementation(libs.kotlinx.serialization.json)
@@ -414,34 +361,11 @@ dependencies {
     testImplementation(libs.mockk)
     testImplementation(libs.turbine)
     testImplementation(libs.kotlinx.coroutines.test)
-    testImplementation(libs.bouncy.castle.pkix)
-    testImplementation(libs.bouncy.castle.prov)
-    testImplementation(libs.ktor.server.test.host)
-    testImplementation(libs.mcp.kotlin.sdk.client)
-    testImplementation(libs.ktor.client.content.negotiation)
-    testImplementation(libs.ktor.sse)
+    // Test-only: EventDispatcherImplTest stands up a local Ktor/Netty server as the receiver for the
+    // event-channel client. Server-side Ktor is not on the app (shipped) classpath — only the test one.
+    testImplementation(libs.ktor.server.core)
+    testImplementation(libs.ktor.server.netty)
 }
-
-dependencies {
-    // ngrok-java host native library packaged as JAR for classpath-based loading.
-    // Runtime.load() uses Class.getResourceAsStream() to extract the .so/.dylib,
-    // so the native library must be inside a JAR on the classpath (not a loose directory).
-    testRuntimeOnly(files("../vendor/ngrok-java/ngrok-java-native/target/ngrok-java-native-host.jar"))
-}
-
-// Offline IP-geolocation database, generated at build time from the CURRENT month's DB-IP City Lite
-// (CC BY 4.0). The gzipped LDB1 asset is not committed (a generated artifact); it is produced into a
-// generated-assets directory and registered via androidComponents so AGP wires every consumer (asset
-// merge, lint-vital, etc.) to depend on it. Keyed on the year-month, so it naturally refreshes when
-// DB-IP publishes a new monthly DB (up-to-date within the same month). Requires python3 + network at
-// build time; the source CSV is cached under .dbip-cache (gitignored) so CI can cache the monthly download.
-val generateLocationDb =
-    tasks.register<GenerateLocationDbTask>("generateLocationDb") {
-        script.set(rootProject.layout.projectDirectory.file("scripts/location-db/build_location_db.py"))
-        month.set(YearMonth.now().toString())
-        cacheDir.set(rootProject.layout.projectDirectory.dir(".dbip-cache"))
-        outputDir.set(layout.buildDirectory.dir("generated/locationDb"))
-    }
 
 androidComponents {
     // Per-flavor debug applicationId (`…mcp.gms.debug` / `…mcp.foss.debug`) so both debug builds coexist, while
@@ -450,11 +374,6 @@ androidComponents {
         variant.applicationId.set(
             "com.danielealbano.androidremotecontrolmcp.${variant.flavorName}.debug",
         )
-    }
-    onVariants { variant ->
-        // Registered as a generated assets source — the generation runs only for variants that package
-        // assets (assemble/lint-vital), never for the unit-test path, which uses the committed fixture.
-        variant.sources.assets?.addGeneratedSourceDirectory(generateLocationDb, GenerateLocationDbTask::outputDir)
     }
 }
 
@@ -556,46 +475,6 @@ tasks.register<JacocoCoverageVerification>("jacocoTestCoverageVerification") {
             limit {
                 minimum = "0.50".toBigDecimal()
             }
-        }
-    }
-}
-
-/**
- * Generates the compact LDB1 geolocation DB into a generated-assets directory by invoking the Python
- * builder. A proper typed task (vs a bare Exec writing into the source tree) so AGP can wire it as a
- * generated assets source with correct task dependencies. Keyed on [month] so it refreshes monthly.
- */
-abstract class GenerateLocationDbTask : DefaultTask() {
-    @get:InputFile
-    abstract val script: RegularFileProperty
-
-    @get:Input
-    abstract val month: Property<String>
-
-    @get:Internal
-    abstract val cacheDir: DirectoryProperty
-
-    @get:OutputDirectory
-    abstract val outputDir: DirectoryProperty
-
-    @get:Inject
-    abstract val execOperations: ExecOperations
-
-    @TaskAction
-    fun generate() {
-        val asset = outputDir.get().asFile.resolve("geo/location-db.bin.gz")
-        asset.parentFile.mkdirs()
-        execOperations.exec {
-            commandLine(
-                "python3",
-                script.get().asFile.absolutePath,
-                "--month",
-                month.get(),
-                "--cache-dir",
-                cacheDir.get().asFile.absolutePath,
-                "--out",
-                asset.absolutePath,
-            )
         }
     }
 }

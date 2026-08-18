@@ -4,9 +4,7 @@ import android.content.Context
 import android.content.Intent
 import android.util.Log
 import com.danielealbano.androidremotecontrolmcp.data.model.BindingAddress
-import com.danielealbano.androidremotecontrolmcp.data.model.CertificateSource
 import com.danielealbano.androidremotecontrolmcp.data.model.ToolPermissionsConfig
-import com.danielealbano.androidremotecontrolmcp.data.model.TunnelProviderType
 import com.danielealbano.androidremotecontrolmcp.data.repository.SettingsRepository
 import com.danielealbano.androidremotecontrolmcp.services.storage.StorageLocationProvider
 
@@ -37,24 +35,12 @@ class AdbConfigHandler(
         }
     }
 
-    @Suppress("LongMethod")
     private suspend fun handleConfigure(intent: Intent) {
         Log.i(TAG, "Received ADB configuration broadcast")
 
-        applyBearerToken(intent)
-        applyOauthEnabled(intent)
-        applyBearerTokenEnabled(intent)
-        applyPublicUrlOverride(intent)
         applyBindingAddress(intent)
         applyPort(intent)
         applyAutoStartOnBoot(intent)
-        applyHttpsEnabled(intent)
-        applyCertificateSource(intent)
-        applyCertificateHostname(intent)
-        applyTunnelEnabled(intent)
-        applyTunnelProvider(intent)
-        applyNgrokAuthtoken(intent)
-        applyNgrokDomain(intent)
         applyFileSizeLimit(intent)
         applyAllowHttpDownloads(intent)
         applyAllowUnverifiedHttpsCerts(intent)
@@ -64,57 +50,6 @@ class AdbConfigHandler(
         applyStorageLocationPermissions(intent)
 
         Log.i(TAG, "ADB configuration applied successfully")
-    }
-
-    private suspend fun applyBearerToken(intent: Intent) {
-        val value = intent.getStringExtra(EXTRA_BEARER_TOKEN) ?: return
-        settingsRepository.updateBearerToken(value)
-        if (value.isEmpty()) {
-            Log.w(
-                TAG,
-                "Bearer token cleared; while bearer_token_enabled=true this makes /mcp fail closed (401) " +
-                    "until a token is set or bearer is disabled",
-            )
-        } else {
-            Log.i(TAG, "Bearer token updated (length=${value.length})")
-        }
-    }
-
-    private suspend fun applyOauthEnabled(intent: Intent) {
-        if (!intent.hasExtra(EXTRA_OAUTH_ENABLED)) return
-        val value = intent.getBooleanExtra(EXTRA_OAUTH_ENABLED, false)
-        settingsRepository.updateOauthEnabled(value)
-        Log.i(TAG, "OAuth enabled updated to $value")
-    }
-
-    private suspend fun applyBearerTokenEnabled(intent: Intent) {
-        if (!intent.hasExtra(EXTRA_BEARER_TOKEN_ENABLED)) return
-        val value = intent.getBooleanExtra(EXTRA_BEARER_TOKEN_ENABLED, false)
-        settingsRepository.updateBearerTokenEnabled(value)
-        if (value) {
-            Log.i(TAG, "Bearer token authentication enabled")
-        } else {
-            Log.w(
-                TAG,
-                "Bearer token authentication disabled; if OAuth is also disabled the server is UNAUTHENTICATED",
-            )
-        }
-    }
-
-    private suspend fun applyPublicUrlOverride(intent: Intent) {
-        if (!intent.hasExtra(EXTRA_PUBLIC_URL_OVERRIDE)) return
-        val value = intent.getStringExtra(EXTRA_PUBLIC_URL_OVERRIDE) ?: ""
-        settingsRepository.validatePublicUrlOverride(value).fold(
-            onSuccess = {
-                settingsRepository.updatePublicUrlOverride(it)
-                if (it.isEmpty()) {
-                    Log.i(TAG, "Public URL override cleared (auto-detect from request)")
-                } else {
-                    Log.i(TAG, "Public URL override updated")
-                }
-            },
-            onFailure = { Log.w(TAG, "Ignoring invalid public_url_override: ${it.message}") },
-        )
     }
 
     private suspend fun applyBindingAddress(intent: Intent) {
@@ -160,82 +95,6 @@ class AdbConfigHandler(
         val value = intent.getBooleanExtra(EXTRA_AUTO_START_ON_BOOT, false)
         settingsRepository.updateAutoStartOnBoot(value)
         Log.i(TAG, "Auto-start on boot updated to $value")
-    }
-
-    private suspend fun applyHttpsEnabled(intent: Intent) {
-        if (!intent.hasExtra(EXTRA_HTTPS_ENABLED)) return
-        val value = intent.getBooleanExtra(EXTRA_HTTPS_ENABLED, false)
-        settingsRepository.updateHttpsEnabled(value)
-        Log.i(TAG, "HTTPS enabled updated to $value")
-    }
-
-    private suspend fun applyCertificateSource(intent: Intent) {
-        val value = intent.getStringExtra(EXTRA_CERTIFICATE_SOURCE) ?: return
-        val source =
-            try {
-                CertificateSource.valueOf(value)
-            } catch (_: IllegalArgumentException) {
-                Log.w(
-                    TAG,
-                    "Ignoring invalid certificate_source '$value' " +
-                        "(valid: ${CertificateSource.entries.joinToString()})",
-                )
-                return
-            }
-        settingsRepository.updateCertificateSource(source)
-        Log.i(TAG, "Certificate source updated to $source")
-    }
-
-    private suspend fun applyCertificateHostname(intent: Intent) {
-        val value = intent.getStringExtra(EXTRA_CERTIFICATE_HOSTNAME) ?: return
-        settingsRepository.validateCertificateHostname(value).fold(
-            onSuccess = {
-                settingsRepository.updateCertificateHostname(it)
-                Log.i(TAG, "Certificate hostname updated to $it")
-            },
-            onFailure = { Log.w(TAG, "Ignoring invalid certificate_hostname '$value': ${it.message}") },
-        )
-    }
-
-    private suspend fun applyTunnelEnabled(intent: Intent) {
-        if (!intent.hasExtra(EXTRA_TUNNEL_ENABLED)) return
-        val value = intent.getBooleanExtra(EXTRA_TUNNEL_ENABLED, false)
-        settingsRepository.updateTunnelEnabled(value)
-        Log.i(TAG, "Tunnel enabled updated to $value")
-    }
-
-    private suspend fun applyTunnelProvider(intent: Intent) {
-        val value = intent.getStringExtra(EXTRA_TUNNEL_PROVIDER) ?: return
-        val provider =
-            try {
-                TunnelProviderType.valueOf(value)
-            } catch (_: IllegalArgumentException) {
-                Log.w(
-                    TAG,
-                    "Ignoring invalid tunnel_provider '$value' " +
-                        "(valid: ${TunnelProviderType.entries.joinToString()})",
-                )
-                return
-            }
-        settingsRepository.updateTunnelProvider(provider)
-        Log.i(TAG, "Tunnel provider updated to $provider")
-    }
-
-    private suspend fun applyNgrokAuthtoken(intent: Intent) {
-        val value = intent.getStringExtra(EXTRA_NGROK_AUTHTOKEN) ?: return
-        if (value.isEmpty()) {
-            Log.w(TAG, "Ignoring empty ngrok_authtoken")
-            return
-        }
-        settingsRepository.updateNgrokAuthtoken(value)
-        Log.i(TAG, "ngrok authtoken updated (length=${value.length})")
-    }
-
-    private suspend fun applyNgrokDomain(intent: Intent) {
-        if (!intent.hasExtra(EXTRA_NGROK_DOMAIN)) return
-        val value = intent.getStringExtra(EXTRA_NGROK_DOMAIN) ?: ""
-        settingsRepository.updateNgrokDomain(value)
-        Log.i(TAG, "ngrok domain updated to '$value'")
     }
 
     private suspend fun applyFileSizeLimit(intent: Intent) {
@@ -344,20 +203,9 @@ class AdbConfigHandler(
     companion object {
         private const val TAG = "MCP:AdbConfigHandler"
 
-        internal const val EXTRA_BEARER_TOKEN = "bearer_token"
-        internal const val EXTRA_OAUTH_ENABLED = "oauth_enabled"
-        internal const val EXTRA_BEARER_TOKEN_ENABLED = "bearer_token_enabled"
-        internal const val EXTRA_PUBLIC_URL_OVERRIDE = "public_url_override"
         internal const val EXTRA_BINDING_ADDRESS = "binding_address"
         internal const val EXTRA_PORT = "port"
         internal const val EXTRA_AUTO_START_ON_BOOT = "auto_start_on_boot"
-        internal const val EXTRA_HTTPS_ENABLED = "https_enabled"
-        internal const val EXTRA_CERTIFICATE_SOURCE = "certificate_source"
-        internal const val EXTRA_CERTIFICATE_HOSTNAME = "certificate_hostname"
-        internal const val EXTRA_TUNNEL_ENABLED = "tunnel_enabled"
-        internal const val EXTRA_TUNNEL_PROVIDER = "tunnel_provider"
-        internal const val EXTRA_NGROK_AUTHTOKEN = "ngrok_authtoken"
-        internal const val EXTRA_NGROK_DOMAIN = "ngrok_domain"
         internal const val EXTRA_FILE_SIZE_LIMIT_MB = "file_size_limit_mb"
         internal const val EXTRA_ALLOW_HTTP_DOWNLOADS = "allow_http_downloads"
         internal const val EXTRA_ALLOW_UNVERIFIED_HTTPS_CERTS = "allow_unverified_https_certs"

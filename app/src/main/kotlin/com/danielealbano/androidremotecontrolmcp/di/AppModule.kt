@@ -4,18 +4,8 @@ import android.content.Context
 import androidx.datastore.core.DataStore
 import androidx.datastore.preferences.core.Preferences
 import androidx.datastore.preferences.preferencesDataStore
-import com.danielealbano.androidremotecontrolmcp.data.repository.OAuthClientRepository
-import com.danielealbano.androidremotecontrolmcp.data.repository.OAuthClientRepositoryImpl
 import com.danielealbano.androidremotecontrolmcp.data.repository.SettingsRepository
 import com.danielealbano.androidremotecontrolmcp.data.repository.SettingsRepositoryImpl
-import com.danielealbano.androidremotecontrolmcp.geo.DbIpGeoResolver
-import com.danielealbano.androidremotecontrolmcp.geo.GeoIpResolver
-import com.danielealbano.androidremotecontrolmcp.mcp.oauth.AuthorizationCodeStore
-import com.danielealbano.androidremotecontrolmcp.mcp.oauth.AuthorizationCodeStoreImpl
-import com.danielealbano.androidremotecontrolmcp.mcp.oauth.JwtTokenService
-import com.danielealbano.androidremotecontrolmcp.mcp.oauth.JwtTokenServiceImpl
-import com.danielealbano.androidremotecontrolmcp.mcp.oauth.OAuthApprovalCoordinator
-import com.danielealbano.androidremotecontrolmcp.mcp.oauth.OAuthApprovalCoordinatorImpl
 import com.danielealbano.androidremotecontrolmcp.services.accessibility.AccessibilityNodeCache
 import com.danielealbano.androidremotecontrolmcp.services.accessibility.AccessibilityNodeCacheImpl
 import com.danielealbano.androidremotecontrolmcp.services.accessibility.AccessibilityServiceProvider
@@ -52,8 +42,6 @@ import com.danielealbano.androidremotecontrolmcp.services.storage.PermissionChec
 import com.danielealbano.androidremotecontrolmcp.services.storage.PermissionCheckerImpl
 import com.danielealbano.androidremotecontrolmcp.services.storage.StorageLocationProvider
 import com.danielealbano.androidremotecontrolmcp.services.storage.StorageLocationProviderImpl
-import com.danielealbano.androidremotecontrolmcp.services.tunnel.AndroidCloudflareBinaryResolver
-import com.danielealbano.androidremotecontrolmcp.services.tunnel.CloudflaredBinaryResolver
 import dagger.Binds
 import dagger.Module
 import dagger.Provides
@@ -70,19 +58,9 @@ import javax.inject.Singleton
 @Retention(AnnotationRetention.BINARY)
 annotation class IoDispatcher
 
-/** Qualifier for the dedicated OAuth-clients Preferences DataStore. */
-@Qualifier
-@Retention(AnnotationRetention.BINARY)
-annotation class OAuthClientsDataStore
-
 /** Extension property for creating the Preferences DataStore on [Context]. */
 private val Context.settingsDataStore: DataStore<Preferences> by preferencesDataStore(
     name = "settings",
-)
-
-/** Extension property for the dedicated OAuth-clients Preferences DataStore on [Context]. */
-private val Context.oauthClientsDataStore: DataStore<Preferences> by preferencesDataStore(
-    name = "oauth_clients",
 )
 
 @Module
@@ -96,16 +74,6 @@ object AppModule {
     fun provideDataStore(
         @ApplicationContext context: Context,
     ): DataStore<Preferences> = context.settingsDataStore
-
-    /**
-     * Provides the dedicated application-scoped [DataStore] for the OAuth client registry.
-     */
-    @Provides
-    @Singleton
-    @OAuthClientsDataStore
-    fun provideOAuthClientsDataStore(
-        @ApplicationContext context: Context,
-    ): DataStore<Preferences> = context.oauthClientsDataStore
 
     /**
      * Provides [Dispatchers.IO] for background work.
@@ -124,16 +92,6 @@ abstract class RepositoryModule {
     @Binds
     @Singleton
     abstract fun bindSettingsRepository(impl: SettingsRepositoryImpl): SettingsRepository
-
-    /** Binds the persisted OAuth client registry. */
-    @Binds
-    @Singleton
-    abstract fun bindOAuthClientRepository(impl: OAuthClientRepositoryImpl): OAuthClientRepository
-
-    /** Binds the offline IP-geolocation resolver used to annotate connection requests. */
-    @Binds
-    @Singleton
-    abstract fun bindGeoIpResolver(impl: DbIpGeoResolver): GeoIpResolver
 }
 
 @Suppress("TooManyFunctions")
@@ -167,9 +125,6 @@ abstract class ServiceModule {
     @Binds
     @Singleton
     abstract fun bindScreenCaptureProvider(impl: ScreenCaptureProviderImpl): ScreenCaptureProvider
-
-    @Binds
-    abstract fun bindCloudflareBinaryResolver(impl: AndroidCloudflareBinaryResolver): CloudflaredBinaryResolver
 
     @Binds
     @Singleton
@@ -220,16 +175,4 @@ abstract class ServiceModule {
     @Binds
     @Singleton
     abstract fun bindSharedContentInbox(impl: SharedContentInboxImpl): SharedContentInbox
-
-    @Binds
-    @Singleton
-    abstract fun bindJwtTokenService(impl: JwtTokenServiceImpl): JwtTokenService
-
-    @Binds
-    @Singleton
-    abstract fun bindAuthorizationCodeStore(impl: AuthorizationCodeStoreImpl): AuthorizationCodeStore
-
-    @Binds
-    @Singleton
-    abstract fun bindOAuthApprovalCoordinator(impl: OAuthApprovalCoordinatorImpl): OAuthApprovalCoordinator
 }

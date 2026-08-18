@@ -21,8 +21,8 @@ import javax.inject.Inject
  * via `adb shell am broadcast`.
  *
  * This receiver lives in the `debug` source set, so it is absent from the release
- * APK entirely. It allows E2E tests to inject server settings (bearer token,
- * binding address, port) into the app's DataStore without manipulating protobuf
+ * APK entirely. It allows E2E tests to inject server settings (binding address,
+ * port, auto-start) into the app's DataStore without manipulating protobuf
  * files directly.
  *
  * The source set alone is NOT the security boundary: debug APKs are attached to
@@ -41,7 +41,6 @@ import javax.inject.Inject
  * adb shell am broadcast \
  *   -a com.danielealbano.androidremotecontrolmcp.debug.E2E_CONFIGURE \
  *   -n com.danielealbano.androidremotecontrolmcp.debug/.E2EConfigReceiver \
- *   --es bearer_token "test-token-uuid" \
  *   --es binding_address "0.0.0.0" \
  *   --ei port 8080 \
  *   --ez auto_start_on_boot true
@@ -84,17 +83,12 @@ class E2EConfigReceiver : BroadcastReceiver() {
     private fun handleConfigure(intent: Intent) {
         Log.i(TAG, "Received E2E configuration broadcast")
 
-        val bearerToken = intent.getStringExtra(EXTRA_BEARER_TOKEN)
         val bindingAddress = intent.getStringExtra(EXTRA_BINDING_ADDRESS)
         val port = intent.getIntExtra(EXTRA_PORT, -1)
         val hasAutoStart = intent.hasExtra(EXTRA_AUTO_START_ON_BOOT)
         val autoStart = intent.getBooleanExtra(EXTRA_AUTO_START_ON_BOOT, false)
 
         scope.launch {
-            if (!bearerToken.isNullOrEmpty()) {
-                settingsRepository.updateBearerToken(bearerToken)
-                Log.i(TAG, "Bearer token updated (length=${bearerToken.length})")
-            }
             if (!bindingAddress.isNullOrEmpty()) {
                 val address =
                     if (bindingAddress == "0.0.0.0") {
@@ -113,7 +107,6 @@ class E2EConfigReceiver : BroadcastReceiver() {
                 settingsRepository.updateAutoStartOnBoot(autoStart)
                 Log.i(TAG, "Auto-start on boot updated to $autoStart")
             }
-            applyAuthFlags(intent)
             val storageLocationId = intent.getStringExtra(EXTRA_STORAGE_LOCATION_ID)
             if (!storageLocationId.isNullOrEmpty()) {
                 if (storageLocationProvider.isLocationAuthorized(storageLocationId)) {
@@ -135,19 +128,6 @@ class E2EConfigReceiver : BroadcastReceiver() {
         }
     }
 
-    private suspend fun applyAuthFlags(intent: Intent) {
-        if (intent.hasExtra(EXTRA_OAUTH_ENABLED)) {
-            val oauthEnabled = intent.getBooleanExtra(EXTRA_OAUTH_ENABLED, false)
-            settingsRepository.updateOauthEnabled(oauthEnabled)
-            Log.i(TAG, "OAuth enabled updated to $oauthEnabled")
-        }
-        if (intent.hasExtra(EXTRA_BEARER_TOKEN_ENABLED)) {
-            val bearerEnabled = intent.getBooleanExtra(EXTRA_BEARER_TOKEN_ENABLED, false)
-            settingsRepository.updateBearerTokenEnabled(bearerEnabled)
-            Log.i(TAG, "Bearer token enabled updated to $bearerEnabled")
-        }
-    }
-
     private fun handleStartServer(context: Context) {
         Log.i(TAG, "Received E2E start server broadcast")
         val intent =
@@ -162,9 +142,6 @@ class E2EConfigReceiver : BroadcastReceiver() {
         private const val TAG = "E2E:ConfigReceiver"
         const val ACTION_E2E_CONFIGURE = "com.danielealbano.androidremotecontrolmcp.debug.E2E_CONFIGURE"
         const val ACTION_E2E_START_SERVER = "com.danielealbano.androidremotecontrolmcp.debug.E2E_START_SERVER"
-        private const val EXTRA_BEARER_TOKEN = "bearer_token"
-        private const val EXTRA_OAUTH_ENABLED = "oauth_enabled"
-        private const val EXTRA_BEARER_TOKEN_ENABLED = "bearer_token_enabled"
         private const val EXTRA_BINDING_ADDRESS = "binding_address"
         private const val EXTRA_PORT = "port"
         private const val EXTRA_AUTO_START_ON_BOOT = "auto_start_on_boot"

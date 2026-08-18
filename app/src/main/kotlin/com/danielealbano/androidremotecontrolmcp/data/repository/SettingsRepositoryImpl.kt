@@ -9,13 +9,10 @@ import androidx.datastore.preferences.core.intPreferencesKey
 import androidx.datastore.preferences.core.stringPreferencesKey
 import com.danielealbano.androidremotecontrolmcp.data.model.BindingAddress
 import com.danielealbano.androidremotecontrolmcp.data.model.BuiltinPermissions
-import com.danielealbano.androidremotecontrolmcp.data.model.CertificateSource
-import com.danielealbano.androidremotecontrolmcp.data.model.CloudflareTunnelMode
 import com.danielealbano.androidremotecontrolmcp.data.model.EventChannelConfig
 import com.danielealbano.androidremotecontrolmcp.data.model.NotificationFilterMode
 import com.danielealbano.androidremotecontrolmcp.data.model.ServerConfig
 import com.danielealbano.androidremotecontrolmcp.data.model.ToolPermissionsConfig
-import com.danielealbano.androidremotecontrolmcp.data.model.TunnelProviderType
 import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.flow.map
@@ -51,83 +48,7 @@ class SettingsRepositoryImpl
                 mapPreferencesToServerConfig(prefs)
             }
 
-        override suspend fun getServerConfig(): ServerConfig {
-            ensureAuthModelMigrated()
-            return mapPreferencesToServerConfig(dataStore.data.first())
-        }
-
-        override suspend fun ensureAuthModelMigrated() {
-            dataStore.edit { prefs ->
-                // One-time bearer-enabled migration (idempotent; guarded).
-                if (prefs[BEARER_TOKEN_ENABLED_INITIALIZED_KEY] != true) {
-                    val wasInitialized = prefs[BEARER_TOKEN_INITIALIZED_KEY] == true
-                    val hadToken = !prefs[BEARER_TOKEN_KEY].isNullOrEmpty()
-                    prefs[BEARER_TOKEN_ENABLED_KEY] = if (wasInitialized) hadToken else true
-                    prefs[BEARER_TOKEN_ENABLED_INITIALIZED_KEY] = true
-                }
-                // Bearer-token auto-generation: only when bearer is enabled and empty.
-                if (prefs[BEARER_TOKEN_INITIALIZED_KEY] != true) {
-                    if (prefs[BEARER_TOKEN_ENABLED_KEY] == true && prefs[BEARER_TOKEN_KEY].isNullOrEmpty()) {
-                        prefs[BEARER_TOKEN_KEY] = generateTokenString()
-                    }
-                    prefs[BEARER_TOKEN_INITIALIZED_KEY] = true
-                }
-            }
-        }
-
-        override suspend fun updateOauthEnabled(enabled: Boolean) {
-            dataStore.edit { prefs -> prefs[OAUTH_ENABLED_KEY] = enabled }
-        }
-
-        override suspend fun updateBearerTokenEnabled(enabled: Boolean) {
-            dataStore.edit { prefs ->
-                prefs[BEARER_TOKEN_ENABLED_KEY] = enabled
-                if (enabled && prefs[BEARER_TOKEN_KEY].isNullOrEmpty()) {
-                    prefs[BEARER_TOKEN_KEY] = generateTokenString()
-                }
-            }
-        }
-
-        override suspend fun updatePublicUrlOverride(url: String) {
-            dataStore.edit { prefs -> prefs[PUBLIC_URL_OVERRIDE_KEY] = url }
-        }
-
-        override fun validatePublicUrlOverride(url: String): Result<String> {
-            if (url.isBlank()) {
-                return Result.success("")
-            }
-            return try {
-                val parsed = URL(url)
-                if (parsed.protocol != "http" && parsed.protocol != "https") {
-                    Result.failure(IllegalArgumentException("URL must use http or https protocol"))
-                } else {
-                    Result.success(url)
-                }
-            } catch (
-                @Suppress("TooGenericExceptionCaught") e: Exception,
-            ) {
-                Result.failure(IllegalArgumentException("Invalid URL format: ${e.message}"))
-            }
-        }
-
-        override suspend fun getOrCreateJwtSigningSecret(): String {
-            dataStore.data
-                .first()[JWT_SIGNING_SECRET_KEY]
-                ?.takeIf { it.isNotEmpty() }
-                ?.let { return it }
-            dataStore.edit { prefs ->
-                if (prefs[JWT_SIGNING_SECRET_KEY].isNullOrEmpty()) {
-                    val raw = ByteArray(JWT_SECRET_BYTES).also { java.security.SecureRandom().nextBytes(it) }
-                    prefs[JWT_SIGNING_SECRET_KEY] =
-                        java.util.Base64
-                            .getUrlEncoder()
-                            .withoutPadding()
-                            .encodeToString(raw)
-                }
-            }
-            // read-AFTER-edit: key is guaranteed present, so !! is always safe
-            return dataStore.data.first()[JWT_SIGNING_SECRET_KEY]!!
-        }
+        override suspend fun getServerConfig(): ServerConfig = mapPreferencesToServerConfig(dataStore.data.first())
 
         override suspend fun updatePort(port: Int) {
             dataStore.edit { prefs ->
@@ -141,64 +62,10 @@ class SettingsRepositoryImpl
             }
         }
 
-        override suspend fun updateBearerToken(token: String) {
-            dataStore.edit { prefs ->
-                prefs[BEARER_TOKEN_KEY] = token
-            }
-        }
-
-        override suspend fun generateNewBearerToken(): String {
-            val token = generateTokenString()
-            updateBearerToken(token)
-            return token
-        }
-
         override suspend fun updateAutoStartOnBoot(enabled: Boolean) {
             dataStore.edit { prefs ->
                 prefs[AUTO_START_KEY] = enabled
             }
-        }
-
-        override suspend fun updateHttpsEnabled(enabled: Boolean) {
-            dataStore.edit { prefs ->
-                prefs[HTTPS_ENABLED_KEY] = enabled
-            }
-        }
-
-        override suspend fun updateCertificateSource(source: CertificateSource) {
-            dataStore.edit { prefs ->
-                prefs[CERTIFICATE_SOURCE_KEY] = source.name
-            }
-        }
-
-        override suspend fun updateCertificateHostname(hostname: String) {
-            dataStore.edit { prefs ->
-                prefs[CERTIFICATE_HOSTNAME_KEY] = hostname
-            }
-        }
-
-        override suspend fun updateTunnelEnabled(enabled: Boolean) {
-            dataStore.edit { prefs -> prefs[TUNNEL_ENABLED_KEY] = enabled }
-        }
-
-        override suspend fun updateTunnelProvider(provider: TunnelProviderType) {
-            dataStore.edit { prefs -> prefs[TUNNEL_PROVIDER_KEY] = provider.name }
-        }
-
-        override suspend fun updateNgrokAuthtoken(authtoken: String) {
-            dataStore.edit { prefs -> prefs[NGROK_AUTHTOKEN_KEY] = authtoken }
-        }
-
-        override suspend fun updateNgrokDomain(domain: String) {
-            dataStore.edit { prefs -> prefs[NGROK_DOMAIN_KEY] = domain }
-        }
-
-        override suspend fun updateCloudflareTunnelMode(mode: CloudflareTunnelMode) {
-            dataStore.edit { prefs -> prefs[CLOUDFLARE_TUNNEL_MODE_KEY] = mode.name }
-        }
-
-        override suspend fun updateCloudflareTunnelToken(token: String) {
-            dataStore.edit { prefs -> prefs[CLOUDFLARE_TUNNEL_TOKEN_KEY] = token }
         }
 
         override suspend fun updateFileSizeLimit(limitMb: Int) {
@@ -463,63 +330,19 @@ class SettingsRepositoryImpl
                 )
             }
 
-        @Suppress("ReturnCount")
-        override fun validateCertificateHostname(hostname: String): Result<String> {
-            if (hostname.isBlank()) {
-                return Result.failure(
-                    IllegalArgumentException("Certificate hostname must not be empty"),
-                )
-            }
-
-            if (!HOSTNAME_PATTERN.matches(hostname)) {
-                return Result.failure(
-                    IllegalArgumentException(
-                        "Certificate hostname contains invalid characters. " +
-                            "Use only letters, digits, hyphens, and dots.",
-                    ),
-                )
-            }
-
-            return Result.success(hostname)
-        }
-
         /**
          * Maps raw [Preferences] to a [ServerConfig] instance, applying defaults
          * for any missing keys.
          */
-        @Suppress("CyclomaticComplexMethod")
         private fun mapPreferencesToServerConfig(prefs: Preferences): ServerConfig {
             val bindingAddressName = prefs[BINDING_ADDRESS_KEY] ?: BindingAddress.LOCALHOST.name
-            val certificateSourceName = prefs[CERTIFICATE_SOURCE_KEY] ?: CertificateSource.AUTO_GENERATED.name
-
-            val tunnelProviderName = prefs[TUNNEL_PROVIDER_KEY] ?: TunnelProviderType.CLOUDFLARE.name
-            val cloudflareTunnelModeName =
-                prefs[CLOUDFLARE_TUNNEL_MODE_KEY] ?: CloudflareTunnelMode.FREE.name
 
             return ServerConfig(
                 port = prefs[PORT_KEY] ?: ServerConfig.DEFAULT_PORT,
                 bindingAddress =
                     BindingAddress.entries.firstOrNull { it.name == bindingAddressName }
                         ?: BindingAddress.LOCALHOST,
-                bearerToken = prefs[BEARER_TOKEN_KEY] ?: "",
                 autoStartOnBoot = prefs[AUTO_START_KEY] ?: false,
-                httpsEnabled = prefs[HTTPS_ENABLED_KEY] ?: false,
-                certificateSource =
-                    CertificateSource.entries.firstOrNull { it.name == certificateSourceName }
-                        ?: CertificateSource.AUTO_GENERATED,
-                certificateHostname =
-                    prefs[CERTIFICATE_HOSTNAME_KEY]
-                        ?: ServerConfig.DEFAULT_CERTIFICATE_HOSTNAME,
-                tunnelEnabled = prefs[TUNNEL_ENABLED_KEY] ?: false,
-                tunnelProvider =
-                    TunnelProviderType.entries.firstOrNull { it.name == tunnelProviderName }
-                        ?: TunnelProviderType.CLOUDFLARE,
-                ngrokAuthtoken = prefs[NGROK_AUTHTOKEN_KEY] ?: "",
-                ngrokDomain = prefs[NGROK_DOMAIN_KEY] ?: "",
-                cloudflareTunnelMode =
-                    CloudflareTunnelMode.entries.firstOrNull { it.name == cloudflareTunnelModeName }
-                        ?: CloudflareTunnelMode.FREE,
-                cloudflareTunnelToken = prefs[CLOUDFLARE_TUNNEL_TOKEN_KEY] ?: "",
                 fileSizeLimitMb = prefs[FILE_SIZE_LIMIT_KEY] ?: ServerConfig.DEFAULT_FILE_SIZE_LIMIT_MB,
                 allowHttpDownloads = prefs[ALLOW_HTTP_DOWNLOADS_KEY] ?: false,
                 allowUnverifiedHttpsCerts = prefs[ALLOW_UNVERIFIED_HTTPS_KEY] ?: false,
@@ -527,15 +350,12 @@ class SettingsRepositoryImpl
                     prefs[DOWNLOAD_TIMEOUT_KEY]
                         ?: ServerConfig.DEFAULT_DOWNLOAD_TIMEOUT_SECONDS,
                 deviceSlug = prefs[DEVICE_SLUG_KEY] ?: "",
-                oauthEnabled = prefs[OAUTH_ENABLED_KEY] ?: true,
-                bearerTokenEnabled = prefs[BEARER_TOKEN_ENABLED_KEY] ?: true,
-                publicUrlOverride = prefs[PUBLIC_URL_OVERRIDE_KEY] ?: "",
                 toolPermissionsConfig = ToolPermissionsConfig.fromJsonOrDefault(prefs[TOOL_PERMISSIONS_KEY]),
             )
         }
 
         /**
-         * Generates a random UUID string for use as a bearer token.
+         * Generates a random UUID string, used for the event-channel auth token.
          */
         private fun generateTokenString(): String = UUID.randomUUID().toString()
 
@@ -714,7 +534,6 @@ class SettingsRepositoryImpl
         companion object {
             private const val TAG = "MCP:SettingsRepo"
             private const val MAX_LOCATION_ID_LOG_LENGTH = 200
-            private const val JWT_SECRET_BYTES = 32
             private val CONTROL_CHAR_REGEX = Regex("[\\p{Cntrl}]")
 
             private fun sanitizeLocationId(locationId: String): String =
@@ -722,24 +541,7 @@ class SettingsRepositoryImpl
 
             private val PORT_KEY = intPreferencesKey("port")
             private val BINDING_ADDRESS_KEY = stringPreferencesKey("binding_address")
-            private val BEARER_TOKEN_KEY = stringPreferencesKey("bearer_token")
-            private val BEARER_TOKEN_INITIALIZED_KEY = booleanPreferencesKey("bearer_token_initialized")
-            private val OAUTH_ENABLED_KEY = booleanPreferencesKey("oauth_enabled")
-            private val BEARER_TOKEN_ENABLED_KEY = booleanPreferencesKey("bearer_token_enabled")
-            private val BEARER_TOKEN_ENABLED_INITIALIZED_KEY =
-                booleanPreferencesKey("bearer_token_enabled_initialized")
-            private val PUBLIC_URL_OVERRIDE_KEY = stringPreferencesKey("public_url_override")
-            private val JWT_SIGNING_SECRET_KEY = stringPreferencesKey("jwt_signing_secret")
             private val AUTO_START_KEY = booleanPreferencesKey("auto_start_on_boot")
-            private val HTTPS_ENABLED_KEY = booleanPreferencesKey("https_enabled")
-            private val CERTIFICATE_SOURCE_KEY = stringPreferencesKey("certificate_source")
-            private val CERTIFICATE_HOSTNAME_KEY = stringPreferencesKey("certificate_hostname")
-            private val TUNNEL_ENABLED_KEY = booleanPreferencesKey("tunnel_enabled")
-            private val TUNNEL_PROVIDER_KEY = stringPreferencesKey("tunnel_provider")
-            private val NGROK_AUTHTOKEN_KEY = stringPreferencesKey("ngrok_authtoken")
-            private val NGROK_DOMAIN_KEY = stringPreferencesKey("ngrok_domain")
-            private val CLOUDFLARE_TUNNEL_MODE_KEY = stringPreferencesKey("cloudflare_tunnel_mode")
-            private val CLOUDFLARE_TUNNEL_TOKEN_KEY = stringPreferencesKey("cloudflare_tunnel_token")
             private val FILE_SIZE_LIMIT_KEY = intPreferencesKey("file_size_limit_mb")
             private val ALLOW_HTTP_DOWNLOADS_KEY = booleanPreferencesKey("allow_http_downloads")
             private val ALLOW_UNVERIFIED_HTTPS_KEY = booleanPreferencesKey("allow_unverified_https_certs")
@@ -749,18 +551,5 @@ class SettingsRepositoryImpl
             private val AUTHORIZED_LOCATIONS_KEY = stringPreferencesKey("authorized_storage_locations")
             private val BUILTIN_LOCATION_PERMISSIONS_KEY = stringPreferencesKey("builtin_location_permissions")
             private val EVENT_CHANNEL_CONFIG_KEY = stringPreferencesKey("event_channel_config")
-
-            /**
-             * Regex pattern for valid hostnames.
-             *
-             * Allows labels of letters, digits, and hyphens separated by dots.
-             * Each label must start and end with an alphanumeric character.
-             * Maximum total length is 253 characters per RFC 1035.
-             */
-            private val HOSTNAME_PATTERN =
-                Regex(
-                    "^(?=.{1,253}$)([a-zA-Z0-9]([a-zA-Z0-9-]{0,61}[a-zA-Z0-9])?\\.)*" +
-                        "[a-zA-Z0-9]([a-zA-Z0-9-]{0,61}[a-zA-Z0-9])?$",
-                )
         }
     }

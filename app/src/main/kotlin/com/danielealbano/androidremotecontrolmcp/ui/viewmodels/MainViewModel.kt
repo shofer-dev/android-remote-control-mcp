@@ -8,22 +8,17 @@ import android.net.Uri
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
 import com.danielealbano.androidremotecontrolmcp.data.model.BindingAddress
-import com.danielealbano.androidremotecontrolmcp.data.model.CertificateSource
-import com.danielealbano.androidremotecontrolmcp.data.model.CloudflareTunnelMode
 import com.danielealbano.androidremotecontrolmcp.data.model.ServerConfig
 import com.danielealbano.androidremotecontrolmcp.data.model.ServerLogEntry
 import com.danielealbano.androidremotecontrolmcp.data.model.ServerStatus
 import com.danielealbano.androidremotecontrolmcp.data.model.StorageLocation
 import com.danielealbano.androidremotecontrolmcp.data.model.ToolPermissionsConfig
-import com.danielealbano.androidremotecontrolmcp.data.model.TunnelProviderType
-import com.danielealbano.androidremotecontrolmcp.data.model.TunnelStatus
 import com.danielealbano.androidremotecontrolmcp.data.repository.SettingsRepository
 import com.danielealbano.androidremotecontrolmcp.di.IoDispatcher
 import com.danielealbano.androidremotecontrolmcp.services.accessibility.McpAccessibilityService
 import com.danielealbano.androidremotecontrolmcp.services.mcp.McpServerService
 import com.danielealbano.androidremotecontrolmcp.services.notifications.McpNotificationListenerService
 import com.danielealbano.androidremotecontrolmcp.services.storage.StorageLocationProvider
-import com.danielealbano.androidremotecontrolmcp.services.tunnel.TunnelManager
 import com.danielealbano.androidremotecontrolmcp.utils.Logger
 import com.danielealbano.androidremotecontrolmcp.utils.PermissionUtils
 import dagger.hilt.android.lifecycle.HiltViewModel
@@ -46,7 +41,6 @@ class MainViewModel
     @Inject
     constructor(
         private val settingsRepository: SettingsRepository,
-        private val tunnelManager: TunnelManager,
         private val storageLocationProvider: StorageLocationProvider,
         @param:IoDispatcher private val ioDispatcher: CoroutineDispatcher,
     ) : ViewModel() {
@@ -61,12 +55,6 @@ class MainViewModel
 
         private val _portError = MutableStateFlow<String?>(null)
         val portError: StateFlow<String?> = _portError.asStateFlow()
-
-        private val _hostnameInput = MutableStateFlow("")
-        val hostnameInput: StateFlow<String> = _hostnameInput.asStateFlow()
-
-        private val _hostnameError = MutableStateFlow<String?>(null)
-        val hostnameError: StateFlow<String?> = _hostnameError.asStateFlow()
 
         private val _isAccessibilityEnabled = MutableStateFlow(false)
         val isAccessibilityEnabled: StateFlow<Boolean> = _isAccessibilityEnabled.asStateFlow()
@@ -88,18 +76,6 @@ class MainViewModel
 
         private val _isNotificationListenerEnabled = MutableStateFlow(false)
         val isNotificationListenerEnabled: StateFlow<Boolean> = _isNotificationListenerEnabled.asStateFlow()
-
-        private val _tunnelStatus = MutableStateFlow<TunnelStatus>(TunnelStatus.Disconnected)
-        val tunnelStatus: StateFlow<TunnelStatus> = _tunnelStatus.asStateFlow()
-
-        private val _ngrokAuthtokenInput = MutableStateFlow("")
-        val ngrokAuthtokenInput: StateFlow<String> = _ngrokAuthtokenInput.asStateFlow()
-
-        private val _ngrokDomainInput = MutableStateFlow("")
-        val ngrokDomainInput: StateFlow<String> = _ngrokDomainInput.asStateFlow()
-
-        private val _cloudflareTokenInput = MutableStateFlow("")
-        val cloudflareTokenInput: StateFlow<String> = _cloudflareTokenInput.asStateFlow()
 
         private val _storageLocations = MutableStateFlow<List<StorageLocation>>(emptyList())
         val storageLocations: StateFlow<List<StorageLocation>> = _storageLocations.asStateFlow()
@@ -126,10 +102,6 @@ class MainViewModel
         val storageError: SharedFlow<String> = _storageError.asSharedFlow()
 
         init {
-            // Apply the one-time auth-model migration before the UI reflects auth defaults.
-            viewModelScope.launch(ioDispatcher) {
-                settingsRepository.ensureAuthModelMigrated()
-            }
             viewModelScope.launch(ioDispatcher) {
                 settingsRepository.serverConfig.collect { config ->
                     _serverConfig.value = config
@@ -139,11 +111,6 @@ class MainViewModel
                     // round-trip through DataStore do not cause extra recompositions.
                     _portInput.value = config.port.toString()
                     _portError.value = null
-                    _hostnameInput.value = config.certificateHostname
-                    _hostnameError.value = null
-                    _ngrokAuthtokenInput.value = config.ngrokAuthtoken
-                    _ngrokDomainInput.value = config.ngrokDomain
-                    _cloudflareTokenInput.value = config.cloudflareTunnelToken
                     _fileSizeLimitInput.value = config.fileSizeLimitMb.toString()
                     _fileSizeLimitError.value = null
                     _downloadTimeoutInput.value = config.downloadTimeoutSeconds.toString()
@@ -159,12 +126,6 @@ class MainViewModel
             viewModelScope.launch {
                 McpServerService.serverStatus.collect { status ->
                     _serverStatus.value = status
-                }
-            }
-
-            viewModelScope.launch {
-                tunnelManager.tunnelStatus.collect { status ->
-                    _tunnelStatus.value = status
                 }
             }
 
@@ -214,33 +175,6 @@ class MainViewModel
             }
         }
 
-        fun updateHttpsEnabled(enabled: Boolean) {
-            viewModelScope.launch(ioDispatcher) {
-                settingsRepository.updateHttpsEnabled(enabled)
-            }
-        }
-
-        fun updateCertificateSource(source: CertificateSource) {
-            viewModelScope.launch(ioDispatcher) {
-                settingsRepository.updateCertificateSource(source)
-            }
-        }
-
-        fun updateCertificateHostname(hostname: String) {
-            _hostnameInput.value = hostname
-
-            val result = settingsRepository.validateCertificateHostname(hostname)
-            if (result.isFailure) {
-                _hostnameError.value = result.exceptionOrNull()?.message
-                return
-            }
-
-            _hostnameError.value = null
-            viewModelScope.launch(ioDispatcher) {
-                settingsRepository.updateCertificateHostname(hostname)
-            }
-        }
-
         fun startServer(context: Context) {
             Logger.i(TAG, "Starting MCP server via McpServerService")
             _serverStatus.value = ServerStatus.Starting
@@ -281,45 +215,6 @@ class MainViewModel
                     McpNotificationListenerService::class.java,
                 )
             refreshStorageLocations()
-        }
-
-        fun updateTunnelEnabled(enabled: Boolean) {
-            viewModelScope.launch(ioDispatcher) {
-                settingsRepository.updateTunnelEnabled(enabled)
-            }
-        }
-
-        fun updateTunnelProvider(provider: TunnelProviderType) {
-            viewModelScope.launch(ioDispatcher) {
-                settingsRepository.updateTunnelProvider(provider)
-            }
-        }
-
-        fun updateNgrokAuthtoken(authtoken: String) {
-            _ngrokAuthtokenInput.value = authtoken
-            viewModelScope.launch(ioDispatcher) {
-                settingsRepository.updateNgrokAuthtoken(authtoken)
-            }
-        }
-
-        fun updateNgrokDomain(domain: String) {
-            _ngrokDomainInput.value = domain
-            viewModelScope.launch(ioDispatcher) {
-                settingsRepository.updateNgrokDomain(domain)
-            }
-        }
-
-        fun updateCloudflareTunnelMode(mode: CloudflareTunnelMode) {
-            viewModelScope.launch(ioDispatcher) {
-                settingsRepository.updateCloudflareTunnelMode(mode)
-            }
-        }
-
-        fun updateCloudflareTunnelToken(token: String) {
-            _cloudflareTokenInput.value = token
-            viewModelScope.launch(ioDispatcher) {
-                settingsRepository.updateCloudflareTunnelToken(token)
-            }
         }
 
         @Suppress("TooGenericExceptionCaught")

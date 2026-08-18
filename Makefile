@@ -6,7 +6,6 @@
         logs logs-clear \
         build-release-bundle \
         version-bump-patch version-bump-minor version-bump-major \
-        compile-cloudflared compile-ngrok-native check-so-alignment \
         all ci
 
 # Variables
@@ -77,30 +76,6 @@ check-deps: ## Check for required development tools
 		echo "           Install: https://podman.io/getting-started/installation"; \
 		MISSING=1; \
 	fi; \
-	if command -v go >/dev/null 2>&1; then \
-		GO_VER=$$(go version); \
-		echo "  [OK] $$GO_VER"; \
-	else \
-		echo "  [MISSING] Go (required for compiling cloudflared)"; \
-		echo "           Install: https://go.dev/dl/"; \
-		MISSING=1; \
-	fi; \
-	if command -v cargo >/dev/null 2>&1; then \
-		CARGO_VER=$$(cargo --version); \
-		echo "  [OK] $$CARGO_VER"; \
-	else \
-		echo "  [MISSING] Rust/cargo (required for compiling ngrok-java native)"; \
-		echo "           Install: https://rustup.rs/"; \
-		MISSING=1; \
-	fi; \
-	if command -v mvn >/dev/null 2>&1; then \
-		MVN_VER=$$(mvn --version 2>&1 | head -1); \
-		echo "  [OK] $$MVN_VER"; \
-	else \
-		echo "  [MISSING] Maven (required for compiling ngrok-java)"; \
-		echo "           Install: brew install maven"; \
-		MISSING=1; \
-	fi; \
 	echo ""; \
 	if [ $$MISSING -eq 1 ]; then \
 		echo "Some dependencies are missing. Please install them."; \
@@ -119,16 +94,16 @@ update-deps: ## Update version catalog with latest stable versions (interactive)
 # Build
 # ─────────────────────────────────────────────────────────────────────────────
 
-build: compile-cloudflared compile-ngrok-native ## Build gms debug APK
+build: ## Build gms debug APK
 	$(GRADLE) assembleGmsDebug
 
-build-foss: compile-cloudflared compile-ngrok-native ## Build foss (F-Droid) debug APK
+build-foss: ## Build foss (F-Droid) debug APK
 	$(GRADLE) assembleFossDebug
 
-build-release: compile-cloudflared compile-ngrok-native ## Build gms + foss release APKs
+build-release: ## Build gms + foss release APKs
 	$(GRADLE) assembleGmsRelease assembleFossRelease
 
-build-release-bundle: compile-cloudflared compile-ngrok-native ## Build signed gms release AAB for Google Play upload
+build-release-bundle: ## Build signed gms release AAB for Google Play upload
 	@test -f keystore.properties || { \
 		echo "ERROR: keystore.properties not found — the AAB would be UNSIGNED and rejected by Google Play."; \
 		echo "Create it from keystore.properties.example first."; \
@@ -315,174 +290,6 @@ version-bump-major: ## Bump major version (1.0.0 -> 2.0.0)
 	sed -i.bak "s/^VERSION_NAME=.*/VERSION_NAME=$$NEW_VERSION/" gradle.properties; \
 	rm -f gradle.properties.bak; \
 	echo "Version bumped: $$CURRENT -> $$NEW_VERSION (versionCode is derived from git, not bumped here)"
-
-# ─────────────────────────────────────────────────────────────────────────────
-# Native Binary Compilation (cloudflared + ngrok)
-# ─────────────────────────────────────────────────────────────────────────────
-
-# NDK root auto-detection: check ANDROID_HOME/ndk first, then brew cask location
-NDK_ROOT := $(shell \
-	if [ -d "$(ANDROID_HOME)/ndk" ] && ls "$(ANDROID_HOME)/ndk" 2>/dev/null | grep -q .; then \
-		ls -d "$(ANDROID_HOME)/ndk"/*/ 2>/dev/null | sort -V | tail -1; \
-	elif [ -d "/opt/homebrew/Caskroom/android-ndk" ]; then \
-		NDK_VER=$$(ls /opt/homebrew/Caskroom/android-ndk/ | sort -V | tail -1); \
-		APP_DIR=$$(ls -d "/opt/homebrew/Caskroom/android-ndk/$$NDK_VER/"*.app 2>/dev/null | head -1); \
-		echo "$$APP_DIR/Contents/NDK"; \
-	fi)
-NDK_BIN := $(NDK_ROOT)/toolchains/llvm/prebuilt/$(shell uname -s | tr A-Z a-z)-$(shell uname -m | sed 's/aarch64/x86_64/; s/arm64/x86_64/')/bin
-
-CLOUDFLARED_SRC_DIR := vendor/cloudflared
-CLOUDFLARED_JNILIBS_DIR := app/src/main/jniLibs
-
-compile-cloudflared: ## Cross-compile cloudflared for Android (requires Go + Android NDK)
-	@if [ ! -f "$(CLOUDFLARED_SRC_DIR)/cmd/cloudflared/main.go" ]; then \
-		echo "ERROR: cloudflared submodule not initialized."; \
-		echo "Run: git submodule update --init vendor/cloudflared"; \
-		exit 1; \
-	fi
-	@if [ ! -d "$(NDK_ROOT)" ]; then \
-		echo "ERROR: Android NDK not found."; \
-		echo "Install via: brew install --cask android-ndk"; \
-		echo "Or install via SDK Manager: sdkmanager \"ndk;27.2.12479018\""; \
-		exit 1; \
-	fi
-	@echo "Compiling cloudflared from submodule ($(CLOUDFLARED_SRC_DIR))..."
-	@echo "Using NDK: $(NDK_ROOT)"
-	@echo ""
-	@echo "Compiling cloudflared for arm64-v8a..."
-	mkdir -p $(CLOUDFLARED_JNILIBS_DIR)/arm64-v8a
-	cd $(CLOUDFLARED_SRC_DIR) && \
-		CGO_ENABLED=1 GOOS=android GOARCH=arm64 \
-		CC=$(NDK_BIN)/aarch64-linux-android21-clang \
-		go build -a -installsuffix cgo -ldflags="-s -w -extldflags=-Wl,-z,max-page-size=16384" \
-		-o $(CURDIR)/$(CLOUDFLARED_JNILIBS_DIR)/arm64-v8a/libcloudflared.so \
-		./cmd/cloudflared
-	@echo ""
-	@echo "Compiling cloudflared for x86_64..."
-	mkdir -p $(CLOUDFLARED_JNILIBS_DIR)/x86_64
-	cd $(CLOUDFLARED_SRC_DIR) && \
-		CGO_ENABLED=1 GOOS=android GOARCH=amd64 \
-		CC=$(NDK_BIN)/x86_64-linux-android21-clang \
-		go build -a -installsuffix cgo -ldflags="-s -w -extldflags=-Wl,-z,max-page-size=16384" \
-		-o $(CURDIR)/$(CLOUDFLARED_JNILIBS_DIR)/x86_64/libcloudflared.so \
-		./cmd/cloudflared
-	@echo ""
-	@echo "cloudflared compiled successfully for arm64-v8a and x86_64"
-
-NGROK_SRC_DIR := vendor/ngrok-java
-NGROK_NATIVE_DIR := $(NGROK_SRC_DIR)/ngrok-java-native
-NGROK_JNILIBS_DIR := app/src/main/jniLibs
-NGROK_JAVA_JAR := $(NGROK_SRC_DIR)/ngrok-java/target/ngrok-java-1.2.0-SNAPSHOT.jar
-NGROK_NATIVE_CLASSES_JAR := $(NGROK_NATIVE_DIR)/target/ngrok-java-native-classes.jar
-NGROK_HOST_NATIVE_DIR := $(NGROK_NATIVE_DIR)/target/aarch64-apple-darwin/release
-JAVA_HOME_17 ?= $(or $(JAVA_HOME),/opt/homebrew/opt/openjdk@17)
-
-compile-ngrok-native: ## Build ngrok-java native library from source (requires Rust + Android NDK + Maven)
-	@if [ ! -f "$(NGROK_NATIVE_DIR)/Cargo.toml" ]; then \
-		echo "ERROR: ngrok-java submodule not initialized."; \
-		echo "Run: git submodule update --init vendor/ngrok-java"; \
-		exit 1; \
-	fi
-	@if [ ! -d "$(NDK_ROOT)" ]; then \
-		echo "ERROR: Android NDK not found."; \
-		echo "Install via: brew install --cask android-ndk"; \
-		exit 1; \
-	fi
-	@if ! command -v cargo >/dev/null 2>&1; then \
-		echo "ERROR: Rust/cargo not found. Install: https://rustup.rs/"; \
-		exit 1; \
-	fi
-	@if ! command -v mvn >/dev/null 2>&1; then \
-		echo "ERROR: Maven not found. Install: brew install maven"; \
-		exit 1; \
-	fi
-	@echo "=== Compiling ngrok-java from source ==="
-	@echo ""
-	@echo "Step 1: Compiling Java classes (needed for JNI code generation)..."
-	cd $(NGROK_SRC_DIR) && \
-		JAVA_HOME=$(JAVA_HOME_17) \
-		JAVA_11_HOME=$(JAVA_HOME_17) \
-		JAVA_17_HOME=$(JAVA_HOME_17) \
-		mvn compile -pl ngrok-java-native --also-make --global-toolchains toolchains.xml -q
-	@echo ""
-	@echo "Step 2: Packaging Java JAR..."
-	cd $(NGROK_SRC_DIR) && \
-		JAVA_HOME=$(JAVA_HOME_17) \
-		JAVA_11_HOME=$(JAVA_HOME_17) \
-		JAVA_17_HOME=$(JAVA_HOME_17) \
-		mvn package -pl ngrok-java -DskipTests --global-toolchains toolchains.xml -q
-	@echo ""
-	@echo "Step 3: Packaging ngrok-java-native Java classes into JAR..."
-	cd $(NGROK_NATIVE_DIR)/target/classes && jar cf ../ngrok-java-native-classes.jar com/
-	@echo ""
-	@echo "Step 4: Building native library for arm64-v8a (aarch64-linux-android)..."
-	cd $(NGROK_NATIVE_DIR) && \
-		CC_aarch64_linux_android="$(NDK_BIN)/aarch64-linux-android21-clang" \
-		AR_aarch64_linux_android="$(NDK_BIN)/llvm-ar" \
-		CARGO_TARGET_AARCH64_LINUX_ANDROID_LINKER="$(NDK_BIN)/aarch64-linux-android21-clang" \
-		cargo build --release --target aarch64-linux-android
-	@echo ""
-	@echo "Step 5: Building native library for x86_64 (x86_64-linux-android)..."
-	cd $(NGROK_NATIVE_DIR) && \
-		CC_x86_64_linux_android="$(NDK_BIN)/x86_64-linux-android21-clang" \
-		AR_x86_64_linux_android="$(NDK_BIN)/llvm-ar" \
-		CARGO_TARGET_X86_64_LINUX_ANDROID_LINKER="$(NDK_BIN)/x86_64-linux-android21-clang" \
-		cargo build --release --target x86_64-linux-android
-	@echo ""
-	@echo "Step 6: Building native library for host (JVM tests)..."
-	cd $(NGROK_NATIVE_DIR) && cargo build --release
-	@echo ""
-	@echo "Step 7: Packaging host native library into JAR (for classpath loading)..."
-	cd $(NGROK_NATIVE_DIR)/target/release && jar cf ../ngrok-java-native-host.jar $$(ls libngrok_java.so libngrok_java.dylib 2>/dev/null)
-	@echo ""
-	@echo "Step 8: Copying .so files to jniLibs..."
-	mkdir -p $(NGROK_JNILIBS_DIR)/arm64-v8a $(NGROK_JNILIBS_DIR)/x86_64
-	cp $(NGROK_NATIVE_DIR)/target/aarch64-linux-android/release/libngrok_java.so $(NGROK_JNILIBS_DIR)/arm64-v8a/
-	cp $(NGROK_NATIVE_DIR)/target/x86_64-linux-android/release/libngrok_java.so $(NGROK_JNILIBS_DIR)/x86_64/
-	@echo ""
-	@echo "ngrok-java compiled successfully:"
-	@echo "  JAR:     $(NGROK_JAVA_JAR)"
-	@echo "  arm64:   $(NGROK_JNILIBS_DIR)/arm64-v8a/libngrok_java.so"
-	@echo "  x86_64:  $(NGROK_JNILIBS_DIR)/x86_64/libngrok_java.so"
-	@echo "  host:    $(NGROK_NATIVE_DIR)/target/release/"
-
-check-so-alignment: ## Check 16KB page alignment of native .so libraries in debug APK
-	@if ! command -v llvm-objdump >/dev/null 2>&1; then \
-		echo "ERROR: llvm-objdump not found. Install LLVM toolchain."; \
-		exit 1; \
-	fi; \
-	APK="app/build/outputs/apk/gms/debug/app-gms-debug.apk"; \
-	if [ ! -f "$$APK" ]; then \
-		echo "Debug APK not found. Run 'make build' first."; \
-		exit 1; \
-	fi; \
-	TMPDIR=$$(mktemp -d); \
-	unzip -q -o "$$APK" "lib/*" -d "$$TMPDIR" 2>/dev/null; \
-	FAIL=0; \
-	for so in $$(find "$$TMPDIR/lib" -name "*.so" 2>/dev/null); do \
-		MIN_EXP=$$(llvm-objdump -p "$$so" 2>/dev/null | grep 'LOAD.*align' | sed 's/.*align 2\*\*//' | sort -n | head -1); \
-		NAME=$$(basename "$$so"); \
-		ABI=$$(basename $$(dirname "$$so")); \
-		if [ -z "$$MIN_EXP" ]; then \
-			echo "  [WARN] $$ABI/$$NAME — no LOAD segments found, skipping"; \
-			continue; \
-		fi; \
-		if [ "$$MIN_EXP" -ge 14 ] 2>/dev/null; then \
-			echo "  [OK]   $$ABI/$$NAME — 16KB aligned (2**$$MIN_EXP)"; \
-		else \
-			echo "  [FAIL] $$ABI/$$NAME — not 16KB aligned (2**$$MIN_EXP)"; \
-			FAIL=1; \
-		fi; \
-	done; \
-	rm -rf "$$TMPDIR"; \
-	if [ $$FAIL -eq 1 ]; then \
-		echo ""; \
-		echo "Some .so files are not 16KB aligned."; \
-		exit 1; \
-	else \
-		echo ""; \
-		echo "All .so files are 16KB aligned."; \
-	fi
 
 # ─────────────────────────────────────────────────────────────────────────────
 # All-in-One

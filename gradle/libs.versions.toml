@@ -23,17 +23,8 @@ ktor = "3.4.0"
 # MCP SDK
 mcp-kotlin-sdk = "0.8.3"
 
-# OAuth (JWT signing/verification)
-java-jwt = "4.5.2"
-
-# Image loading (OAuth client logos)
-coil = "3.2.0"
-
 # SLF4J (routes SDK logs to android.util.Log)
 slf4j-android = "1.7.36"
-
-# Certificate generation
-bouncy-castle = "1.85"
 
 # Serialization
 kotlinx-serialization = "1.10.0"
@@ -106,27 +97,10 @@ play-services-location = { group = "com.google.android.gms", name = "play-servic
 # OpenStreetMap
 osmdroid = { group = "org.osmdroid", name = "osmdroid-android", version.ref = "osmdroid" }
 
-# Ktor Server
+# Ktor Server (test-only: EventDispatcherImplTest stands up a local receiver — not on the app classpath)
 ktor-server-core = { group = "io.ktor", name = "ktor-server-core", version.ref = "ktor" }
 ktor-server-netty = { group = "io.ktor", name = "ktor-server-netty", version.ref = "ktor" }
-ktor-server-content-negotiation = { group = "io.ktor", name = "ktor-server-content-negotiation", version.ref = "ktor" }
-ktor-server-cors = { group = "io.ktor", name = "ktor-server-cors", version.ref = "ktor" }
-ktor-network-tls-certificates = { group = "io.ktor", name = "ktor-network-tls-certificates", version.ref = "ktor" }
 ktor-serialization-kotlinx-json = { group = "io.ktor", name = "ktor-serialization-kotlinx-json", version.ref = "ktor" }
-
-# Ktor additional plugins
-ktor-server-test-host = { group = "io.ktor", name = "ktor-server-test-host", version.ref = "ktor" }
-
-# Certificate generation (Bouncy Castle for self-signed cert with SAN support)
-bouncy-castle-pkix = { group = "org.bouncycastle", name = "bcpkix-jdk18on", version.ref = "bouncy-castle" }
-bouncy-castle-prov = { group = "org.bouncycastle", name = "bcprov-jdk18on", version.ref = "bouncy-castle" }
-
-# OAuth (JWT signing/verification)
-java-jwt = { group = "com.auth0", name = "java-jwt", version.ref = "java-jwt" }
-
-# Image loading (OAuth client logos)
-coil-compose = { group = "io.coil-kt.coil3", name = "coil-compose", version.ref = "coil" }
-coil-network = { group = "io.coil-kt.coil3", name = "coil-network-okhttp", version.ref = "coil" }
 
 # MCP SDK
 mcp-kotlin-sdk-server = { group = "io.modelcontextprotocol", name = "kotlin-sdk-server", version.ref = "mcp-kotlin-sdk" }

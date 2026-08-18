@@ -22,7 +22,6 @@ jobs:
       - name: Checkout
         uses: actions/checkout@v7
         with:
-          submodules: true
           # Full history + tags: build.gradle.kts derives versionName/versionCode from
           # git and fails configuration without them (no hardcoded fallback).
           fetch-depth: 0
@@ -35,22 +34,6 @@ jobs:
 
       - name: Set up Gradle
         uses: gradle/actions/setup-gradle@v6
-
-      - name: Cache ngrok-java JAR
-        id: cache-ngrok-jar
-        uses: actions/cache@v6
-        with:
-          path: vendor/ngrok-java/ngrok-java/target/ngrok-java-1.2.0-SNAPSHOT.jar
-          key: ngrok-jar-v2-${{ runner.os }}-${{ hashFiles('vendor/ngrok-java/ngrok-java/pom.xml', 'vendor/ngrok-java/ngrok-java/src/**') }}
-
-      - name: Build ngrok-java JAR (required for Gradle classpath)
-        if: steps.cache-ngrok-jar.outputs.cache-hit != 'true'
-        run: |
-          cd vendor/ngrok-java
-          mvn package -pl ngrok-java -DskipTests --global-toolchains toolchains.xml -q
-        env:
-          JAVA_11_HOME: ${{ env.JAVA_HOME }}
-          JAVA_17_HOME: ${{ env.JAVA_HOME }}
 
       - name: Run ktlint
         run: ./gradlew ktlintCheck
@@ -59,7 +42,7 @@ jobs:
         run: ./gradlew detekt
 
   test-unit:
-    name: Unit & Integration Tests
+    name: Unit Tests
     runs-on: ubuntu-latest
     needs: lint
     timeout-minutes: 25
@@ -67,7 +50,6 @@ jobs:
       - name: Checkout
         uses: actions/checkout@v7
         with:
-          submodules: true
           # Full history + tags: build.gradle.kts derives versionName/versionCode from
           # git and fails configuration without them (no hardcoded fallback).
           fetch-depth: 0
@@ -78,56 +60,10 @@ jobs:
           java-version: '17'
           distribution: 'temurin'
 
-      - name: Cache ngrok-java host native build
-        id: cache-ngrok-host
-        uses: actions/cache@v6
-        with:
-          path: |
-            vendor/ngrok-java/ngrok-java/target/ngrok-java-1.2.0-SNAPSHOT.jar
-            vendor/ngrok-java/ngrok-java-native/target/ngrok-java-native-classes.jar
-            vendor/ngrok-java/ngrok-java-native/target/ngrok-java-native-host.jar
-            vendor/ngrok-java/ngrok-java-native/target/release/libngrok_java.so
-            vendor/ngrok-java/ngrok-java-native/target/release/libngrok_java.dylib
-          key: ngrok-host-v2-${{ runner.os }}-${{ hashFiles('.gitmodules', 'vendor/ngrok-java/**/*.toml', 'vendor/ngrok-java/**/pom.xml', 'vendor/ngrok-java/ngrok-java-native/src/**') }}
-
-      - name: Cache Maven repository
-        if: steps.cache-ngrok-host.outputs.cache-hit != 'true'
-        uses: actions/cache@v6
-        with:
-          path: ~/.m2/repository
-          key: maven-${{ runner.os }}-${{ hashFiles('vendor/ngrok-java/**/pom.xml') }}
-          restore-keys: |
-            maven-${{ runner.os }}-
-
-      - name: Set up Rust
-        if: steps.cache-ngrok-host.outputs.cache-hit != 'true'
-        uses: dtolnay/rust-toolchain@stable
-
       - name: Set up Gradle
         uses: gradle/actions/setup-gradle@v6
 
-      - name: Install cloudflared
-        run: |
-          curl -fsSL https://github.com/cloudflare/cloudflared/releases/latest/download/cloudflared-linux-amd64 -o /usr/local/bin/cloudflared
-          chmod +x /usr/local/bin/cloudflared
-          cloudflared --version
-
-      - name: Build ngrok-java JAR and host native library (for JVM tests)
-        if: steps.cache-ngrok-host.outputs.cache-hit != 'true'
-        run: |
-          cd vendor/ngrok-java
-          mvn compile -pl ngrok-java-native --also-make --global-toolchains toolchains.xml -q
-          mvn package -pl ngrok-java -DskipTests --global-toolchains toolchains.xml -q
-          (cd ngrok-java-native/target/classes && jar cf ../ngrok-java-native-classes.jar com/)
-          (cd ngrok-java-native && cargo build --release)
-          (cd ngrok-java-native/target/release && jar cf ../ngrok-java-native-host.jar $(ls libngrok_java.so libngrok_java.dylib 2>/dev/null))
-        env:
-          JAVA_11_HOME: ${{ env.JAVA_HOME }}
-          JAVA_17_HOME: ${{ env.JAVA_HOME }}
-
       - name: Run unit tests with coverage
-        env:
-          NGROK_AUTHTOKEN: ${{ secrets.NGROK_AUTHTOKEN }}
         run: ./gradlew :app:test jacocoTestReport jacocoTestCoverageVerification
 
       - name: Upload unit test results
@@ -148,159 +84,15 @@ jobs:
             app/build/reports/jacoco/jacocoTestReport/jacocoTestReport.xml
           retention-days: 14
 
-  test-e2e:
-    name: E2E Tests
-    runs-on: ubuntu-latest
-    needs: test-unit
-    timeout-minutes: 30
-    steps:
-      - name: Checkout
-        uses: actions/checkout@v7
-        with:
-          submodules: true
-          # Full history + tags: build.gradle.kts derives versionName/versionCode from
-          # git and fails configuration without them (no hardcoded fallback).
-          fetch-depth: 0
-
-      - name: Set up JDK 17
-        uses: actions/setup-java@v5
-        with:
-          java-version: '17'
-          distribution: 'temurin'
-
-      - name: Cache cloudflared Android native
-        id: cache-cloudflared
-        uses: actions/cache@v6
-        with:
-          path: |
-            app/src/main/jniLibs/arm64-v8a/libcloudflared.so
-            app/src/main/jniLibs/x86_64/libcloudflared.so
-          key: cloudflared-android-${{ runner.os }}-${{ hashFiles('.gitmodules', 'vendor/cloudflared/**/*.go', 'vendor/cloudflared/go.sum') }}
-
-      - name: Cache ngrok-java Android native
-        id: cache-ngrok-android
-        uses: actions/cache@v6
-        with:
-          path: |
-            app/src/main/jniLibs/arm64-v8a/libngrok_java.so
-            app/src/main/jniLibs/x86_64/libngrok_java.so
-            vendor/ngrok-java/ngrok-java/target/ngrok-java-1.2.0-SNAPSHOT.jar
-            vendor/ngrok-java/ngrok-java-native/target/ngrok-java-native-classes.jar
-          key: ngrok-android-v2-${{ runner.os }}-${{ hashFiles('.gitmodules', 'vendor/ngrok-java/**/*.toml', 'vendor/ngrok-java/**/pom.xml', 'vendor/ngrok-java/ngrok-java-native/src/**') }}
-
-      - name: Set up Go
-        if: steps.cache-cloudflared.outputs.cache-hit != 'true'
-        uses: actions/setup-go@v7
-        with:
-          go-version: '1.25.6'
-
-      - name: Set up Rust
-        if: steps.cache-ngrok-android.outputs.cache-hit != 'true'
-        uses: dtolnay/rust-toolchain@stable
-        with:
-          targets: aarch64-linux-android,x86_64-linux-android
-
-      - name: Set up Gradle
-        uses: gradle/actions/setup-gradle@v6
-
-      - name: Compile cloudflared for Android
-        if: steps.cache-cloudflared.outputs.cache-hit != 'true'
-        run: make compile-cloudflared
-
-      - name: Compile ngrok-java native for Android
-        if: steps.cache-ngrok-android.outputs.cache-hit != 'true'
-        run: make compile-ngrok-native
-        env:
-          JAVA_11_HOME: ${{ env.JAVA_HOME }}
-          JAVA_17_HOME: ${{ env.JAVA_HOME }}
-
-      - name: Set up Python (geolocation DB generator)
-        uses: actions/setup-python@v6
-        with:
-          python-version: '3.12'
-
-      - name: Compute DB-IP month
-        id: dbip-month
-        run: echo "month=$(date +%Y-%m)" >> "$GITHUB_OUTPUT"
-
-      - name: Cache DB-IP source CSV
-        uses: actions/cache@v6
-        with:
-          path: .dbip-cache
-          key: dbip-csv-${{ steps.dbip-month.outputs.month }}
-
-      - name: Build gms debug APK (required by E2E tests)
-        run: ./gradlew assembleGmsDebug
-
-      - name: Set up Android platform-tools (adb)
-        run: |
-          echo "ANDROID_HOME=$ANDROID_HOME"
-          echo "Checking for platform-tools..."
-          ls -la "$ANDROID_HOME/platform-tools/adb" 2>/dev/null || echo "adb not found at $ANDROID_HOME/platform-tools/"
-          ls "$ANDROID_HOME/" 2>/dev/null || echo "ANDROID_HOME directory not found"
-          # Install platform-tools if not present
-          if [ ! -f "$ANDROID_HOME/platform-tools/adb" ]; then
-            echo "Installing platform-tools via sdkmanager..."
-            yes | "$ANDROID_HOME/cmdline-tools/latest/bin/sdkmanager" --install "platform-tools" 2>/dev/null || \
-              sudo apt-get install -y -qq android-sdk-platform-tools 2>/dev/null || \
-              { echo "ERROR: Could not install platform-tools"; exit 1; }
-          fi
-          echo "$ANDROID_HOME/platform-tools" >> "$GITHUB_PATH"
-          "$ANDROID_HOME/platform-tools/adb" version
-
-      - name: Set up redroid kernel modules
-        run: |
-          # Install kernel module package (binder_linux is in linux-modules-extra)
-          sudo apt-get update -qq
-          sudo apt-get install -y -qq linux-modules-extra-$(uname -r)
-          # Load required kernel modules
-          sudo modprobe binder_linux devices="binder,hwbinder,vndbinder"
-          sudo modprobe fuse
-          # Mount binderfs if not already mounted
-          if ! mountpoint -q /dev/binderfs; then
-            sudo mkdir -p /dev/binderfs
-            sudo mount -t binder binder /dev/binderfs
-          fi
-          # Verify
-          ls -la /dev/binderfs/
-          lsmod | grep -E 'binder_linux|fuse'
-
-      - name: Set up rootful podman socket
-        run: |
-          sudo apt-get install -y -qq podman
-          sudo systemctl enable --now podman.socket
-          sudo chmod 755 /run/podman
-          sudo chmod 666 /run/podman/podman.sock
-          # Verify socket is accessible
-          curl -s --unix-socket /run/podman/podman.sock http://localhost/_ping
-
-      - name: Pre-pull redroid image
-        run: sudo podman pull redroid/redroid:13.0.0-latest
-
-      - name: Run E2E tests
-        env:
-          DOCKER_HOST: unix:///run/podman/podman.sock
-          TESTCONTAINERS_RYUK_DISABLED: "true"
-        run: ./gradlew :e2e-tests:test
-
-      - name: Upload E2E test results
-        if: always()
-        uses: actions/upload-artifact@v7
-        with:
-          name: e2e-test-results
-          path: e2e-tests/build/reports/tests/
-          retention-days: 14
-
   build-release:
     name: Build Release
     runs-on: ubuntu-latest
-    needs: test-e2e
+    needs: test-unit
     timeout-minutes: 25
     steps:
       - name: Checkout
         uses: actions/checkout@v7
         with:
-          submodules: true
           # Full history + tags: build.gradle.kts derives versionName/versionCode from
           # git and fails configuration without them (no hardcoded fallback). On
           # pull_request runs this reflects the ephemeral merge ref, not the post-merge
@@ -313,66 +105,8 @@ jobs:
           java-version: '17'
           distribution: 'temurin'
 
-      - name: Cache cloudflared Android native
-        id: cache-cloudflared
-        uses: actions/cache@v6
-        with:
-          path: |
-            app/src/main/jniLibs/arm64-v8a/libcloudflared.so
-            app/src/main/jniLibs/x86_64/libcloudflared.so
-          key: cloudflared-android-${{ runner.os }}-${{ hashFiles('.gitmodules', 'vendor/cloudflared/**/*.go', 'vendor/cloudflared/go.sum') }}
-
-      - name: Cache ngrok-java Android native
-        id: cache-ngrok-android
-        uses: actions/cache@v6
-        with:
-          path: |
-            app/src/main/jniLibs/arm64-v8a/libngrok_java.so
-            app/src/main/jniLibs/x86_64/libngrok_java.so
-            vendor/ngrok-java/ngrok-java/target/ngrok-java-1.2.0-SNAPSHOT.jar
-            vendor/ngrok-java/ngrok-java-native/target/ngrok-java-native-classes.jar
-          key: ngrok-android-v2-${{ runner.os }}-${{ hashFiles('.gitmodules', 'vendor/ngrok-java/**/*.toml', 'vendor/ngrok-java/**/pom.xml', 'vendor/ngrok-java/ngrok-java-native/src/**') }}
-
-      - name: Set up Go
-        if: steps.cache-cloudflared.outputs.cache-hit != 'true'
-        uses: actions/setup-go@v7
-        with:
-          go-version: '1.25.6'
-
-      - name: Set up Rust
-        if: steps.cache-ngrok-android.outputs.cache-hit != 'true'
-        uses: dtolnay/rust-toolchain@stable
-        with:
-          targets: aarch64-linux-android,x86_64-linux-android
-
       - name: Set up Gradle
         uses: gradle/actions/setup-gradle@v6
-
-      - name: Compile cloudflared for Android
-        if: steps.cache-cloudflared.outputs.cache-hit != 'true'
-        run: make compile-cloudflared
-
-      - name: Compile ngrok-java native for Android
-        if: steps.cache-ngrok-android.outputs.cache-hit != 'true'
-        run: make compile-ngrok-native
-        env:
-          JAVA_11_HOME: ${{ env.JAVA_HOME }}
-          JAVA_17_HOME: ${{ env.JAVA_HOME }}
-
-      - name: Set up Python (geolocation DB generator)
-        uses: actions/setup-python@v6
-        with:
-          python-version: '3.12'
-
-      - name: Compute DB-IP month
-        id: dbip-month
-        run: echo "month=$(date +%Y-%m)" >> "$GITHUB_OUTPUT"
-
-      - name: Cache DB-IP source CSV
-        uses: actions/cache@v6
-        with:
-          path: .dbip-cache
-          key: dbip-csv-${{ steps.dbip-month.outputs.month }}
 
       - name: Build debug APKs (gms + foss)
         run: ./gradlew assembleGmsDebug assembleFossDebug
