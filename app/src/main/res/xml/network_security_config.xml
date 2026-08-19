@@ -6,14 +6,19 @@
 
   The ONE exception is the emulated device class, which runs this app inside the
   cluster in an egress-locked pod. It cannot reach the public wss edge — only the
-  INTERNAL device-gateway service, addressed as a Kubernetes cluster-local name
-  (device-gateway.<namespace>.svc.cluster.local) over plain ws:// with a port.
-  That traffic is NOT unprotected: the pod is in the service mesh, so ztunnel
-  wraps it in mTLS on the wire transparently to the app. So cleartext is permitted
-  ONLY for cluster-local names, and remains blocked everywhere else.
+  INTERNAL device-gateway service. It does not dial that service directly, either:
+  the emulator's QEMU slirp user-mode NAT cannot carry a working WebSocket exchange
+  to a kube-proxy ClusterIP (the TCP handshake completes, then the data path breaks),
+  so the in-pod supervisor wires an `adb reverse` tunnel and the connector dials a
+  LOOPBACK port (127.0.0.1) that adb forwards to a pod-side proxy. That proxy hop
+  to the gateway is NOT unprotected: the pod is in the service mesh, so ztunnel
+  wraps it in mTLS transparently. So cleartext is permitted for the loopback tunnel
+  address (and cluster-local names, for a direct-dial fallback), and remains blocked
+  everywhere else.
 -->
 <network-security-config>
     <domain-config cleartextTrafficPermitted="true">
+        <domain includeSubdomains="false">127.0.0.1</domain>
         <domain includeSubdomains="true">svc.cluster.local</domain>
     </domain-config>
 </network-security-config>
