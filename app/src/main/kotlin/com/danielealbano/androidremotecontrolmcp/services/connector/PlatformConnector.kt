@@ -19,6 +19,9 @@ import com.danielealbano.androidremotecontrolmcp.BuildConfig
 import com.danielealbano.androidremotecontrolmcp.data.model.ConnectorConfig
 import com.danielealbano.androidremotecontrolmcp.data.repository.SettingsRepository
 import com.danielealbano.androidremotecontrolmcp.services.connector.crypto.DeviceIdentity
+import com.danielealbano.androidremotecontrolmcp.services.connector.indicator.RemoteActivityIndicator
+import com.danielealbano.androidremotecontrolmcp.services.connector.policy.PolicyDecision
+import com.danielealbano.androidremotecontrolmcp.services.connector.policy.PolicyEnforcer
 import com.danielealbano.androidremotecontrolmcp.services.connector.protocol.ActionName
 import com.danielealbano.androidremotecontrolmcp.services.connector.protocol.ConnectorJson
 import com.danielealbano.androidremotecontrolmcp.services.connector.protocol.Frame
@@ -67,6 +70,22 @@ import kotlin.random.Random
  * Heartbeat, backoff and network-change awareness follow the wire spec's open questions Q1/Q9:
  * an application-level `ping` every [HEARTBEAT_INTERVAL_MS] (well inside the 90s server lapse),
  * exponential backoff with jitter, and an immediate wake on a new default network.
+ *
+ * ── Policy enforcement (`docs/phones/android_remote_control.md` §6.4) ──────────────────
+ * The gateway sends a `policy` frame immediately after `attached` and again whenever the
+ * state it carries changes. Two things follow, and both are enforcement rather than display:
+ *
+ * - **Every `cmd` is evaluated by [PolicyEnforcer] BEFORE it reaches [RelayTransport]**, so a
+ *   refusal never touches the MCP session and never touches the device. The refusal rides
+ *   back as `reply{id, error, details}`, which the gateway propagates to the caller
+ *   unchanged. The enforcer is cleared when a socket ends, so a reconnect drives nothing
+ *   until a fresh snapshot arrives — "attached but unpoliced" is a refusing state, not a
+ *   permissive one.
+ * - **Outside the active-hours window the connector DETACHES**, on arrival of a snapshot that
+ *   is already closed and on the watchdog that fires when an open window closes mid-session.
+ *   The server refusing is policy; the device refusing is the guarantee, and a device that
+ *   holds no socket cannot be commanded by a dispatcher bug at all. It then sleeps until the
+ *   window reopens rather than dialling on a backoff that would be refused all night.
  */
 class PlatformConnector(
     private val appContext: Context,
@@ -76,6 +95,8 @@ class PlatformConnector(
     private val actionHandler: DeviceActionHandler,
     private val termsBroker: TermsConsentBroker,
     private val serverFactory: McpToolServerFactory,
+    private val policyEnforcer: PolicyEnforcer,
+    private val activityIndicator: RemoteActivityIndicator,
     private val appVersion: String = BuildConfig.VERSION_NAME,
 ) {
     private val _status = MutableStateFlow<ConnectorStatus>(ConnectorStatus.NeedsConfig)
@@ -127,6 +148,17 @@ class PlatformConnector(
                     ConnectionResult.Reconnect -> {
                         _status.value = ConnectorStatus.Reconnecting
                         waitBeforeRetry()
+                    }
+
+                    is ConnectionResult.OutsideActiveHours -> {
+                        // Deliberately NOT interruptible by a network wakeup: the window is
+                        // a wall-clock fact, and a new radio does not reopen it. Sleeping the
+                        // closed stretch is what keeps an overnight window from being an
+                        // all-night reconnect storm.
+                        _status.value = ConnectorStatus.OutsideActiveHours
+                        Log.i(TAG, "Outside the active-hours window; detached for ${result.sleepMillis}ms")
+                        delay(result.sleepMillis)
+                        resetBackoff()
                     }
 
                     is ConnectionResult.Halt -> {
@@ -229,10 +261,16 @@ class PlatformConnector(
         transport?.rebind { frame -> ws.send(encode(frame)) }
 
         var heartbeat: Job? = null
+        var windowWatchdog: Job? = null
         val machine = HandshakeMachine(config)
         try {
             for (event in events) {
                 when (event) {
+                    WsEvent.ActiveHoursClosed -> {
+                        // The watchdog fired: an open window closed while the socket was up.
+                        return ConnectionResult.OutsideActiveHours(sleepUntilWindowOpens())
+                    }
+
                     WsEvent.Open -> {
                         try {
                             machine.onOpen()
@@ -243,7 +281,11 @@ class PlatformConnector(
                     }
 
                     is WsEvent.Message -> {
-                        val result = machine.onFrame(event.frame) { heartbeat = startHeartbeat(ws) }
+                        val result =
+                            machine.onFrame(event.frame, onAttached = { heartbeat = startHeartbeat(ws) }) {
+                                windowWatchdog?.cancel()
+                                windowWatchdog = startWindowWatchdog(events)
+                            }
                         if (result != null) return result
                     }
 
@@ -259,6 +301,12 @@ class PlatformConnector(
             return ConnectionResult.Reconnect
         } finally {
             heartbeat?.cancel()
+            windowWatchdog?.cancel()
+            // The policy dies with the socket that delivered it: a reconnect refuses every
+            // command until a fresh snapshot arrives. A policy that outlived its connection
+            // is a policy the platform may already have changed.
+            policyEnforcer.clear()
+            activityIndicator.reset()
             ws.cancel()
             currentSocket = null
         }
@@ -271,6 +319,60 @@ class PlatformConnector(
                 ws.send(encode(Frame(type = FrameType.PING)))
             }
         }
+
+    /**
+     * Arms the mid-session active-hours watchdog. A socket attached at 21:59 under an
+     * `08:00-22:00` window has to detach itself a minute later WITHOUT a command arriving to
+     * trigger the check — otherwise a device that nobody drives at 21:59 stays attached and
+     * drivable all night, and the window would only be enforced by the commands it refuses.
+     */
+    private fun startWindowWatchdog(events: Channel<WsEvent>): Job? {
+        val closesIn = policyEnforcer.millisUntilWindowCloses()
+        if (closesIn <= 0) return null
+        return scope.launch {
+            delay(closesIn)
+            events.trySend(WsEvent.ActiveHoursClosed)
+        }
+    }
+
+    /**
+     * How long to stay detached once the window has closed, floored so a policy this app
+     * could not make sense of can never turn into a dial-refuse-dial spin.
+     */
+    private fun sleepUntilWindowOpens(): Long {
+        val untilOpen = policyEnforcer.millisUntilWindowOpens()
+        return untilOpen.coerceAtLeast(MIN_OUT_OF_HOURS_SLEEP_MS)
+    }
+
+    /**
+     * Serves one relayed `cmd`: evaluate the platform's policy FIRST, and only then hand the
+     * payload to the loopback MCP hop. A refusal is written straight back as a `reply` frame
+     * carrying the typed code, so the caller learns why rather than timing out, and the MCP
+     * session never sees the request at all.
+     */
+    private suspend fun serveCommand(frame: Frame) {
+        when (val decision = policyEnforcer.evaluate(frame.payload)) {
+            is PolicyDecision.Refused -> {
+                send(
+                    Frame(
+                        type = FrameType.REPLY,
+                        id = frame.id,
+                        error = decision.error,
+                        details = decision.details,
+                    ),
+                )
+            }
+
+            PolicyDecision.Allowed -> {
+                activityIndicator.onCommandStarted()
+                try {
+                    transport?.dispatchCommand(frame)
+                } finally {
+                    activityIndicator.onCommandFinished()
+                }
+            }
+        }
+    }
 
     // ─────────────────────────────── handshake state machine ──────────────────────────────
 
@@ -318,6 +420,7 @@ class PlatformConnector(
         suspend fun onFrame(
             frame: Frame,
             onAttached: () -> Unit,
+            onPolicyApplied: () -> Unit,
         ): ConnectionResult? =
             when (frame.type) {
                 FrameType.PONG -> {
@@ -340,8 +443,12 @@ class PlatformConnector(
                     onAttached(onAttached)
                 }
 
+                FrameType.POLICY -> {
+                    onPolicy(frame, onPolicyApplied)
+                }
+
                 FrameType.CMD -> {
-                    scope.launch { transport?.dispatchCommand(frame) }
+                    scope.launch { serveCommand(frame) }
                     null
                 }
 
@@ -364,6 +471,34 @@ class PlatformConnector(
                     null
                 }
             }
+
+        /**
+         * Applies a policy snapshot. Two outcomes: the window is open, so the snapshot takes
+         * effect and the mid-session watchdog is (re)armed; or the window is already closed,
+         * in which case the connector DETACHES rather than sitting attached refusing every
+         * command — the server refusing is policy, holding no socket is the guarantee.
+         */
+        private fun onPolicy(
+            frame: Frame,
+            onPolicyApplied: () -> Unit,
+        ): ConnectionResult? {
+            val snapshot = frame.policy
+            if (snapshot == null) {
+                // A policy frame with no snapshot leaves the device unable to say what it may
+                // do. Reconnecting is the honest answer: the enforcer is cleared on the way
+                // out, so nothing is driven until a well-formed snapshot arrives.
+                Log.w(TAG, "policy frame without a snapshot; reconnecting for a fresh one")
+                return ConnectionResult.Reconnect
+            }
+            policyEnforcer.apply(snapshot)
+            if (policyEnforcer.isOutsideActiveHours()) {
+                return ConnectionResult.OutsideActiveHours(sleepUntilWindowOpens())
+            }
+            _status.value =
+                if (snapshot.paused) ConnectorStatus.Paused else ConnectorStatus.Connected
+            onPolicyApplied()
+            return null
+        }
 
         private suspend fun onTerms(frame: Frame): ConnectionResult? {
             val hash = frame.termsHash
@@ -598,10 +733,21 @@ class PlatformConnector(
         ) : WsEvent
 
         data object Failure : WsEvent
+
+        /** The active-hours watchdog fired: an open window closed while the socket was up. */
+        data object ActiveHoursClosed : WsEvent
     }
 
     private sealed interface ConnectionResult {
         data object Reconnect : ConnectionResult
+
+        /**
+         * The active-hours window is closed. The connector detaches and stays detached for
+         * [sleepMillis] — not a backoff, a wall-clock wait for the window to reopen.
+         */
+        data class OutsideActiveHours(
+            val sleepMillis: Long,
+        ) : ConnectionResult
 
         data class Halt(
             val status: ConnectorStatus,
@@ -684,5 +830,11 @@ class PlatformConnector(
         private const val MAX_BACKOFF_MS = 60_000L
         private const val BACKOFF_FACTOR = 2.0
         private const val JITTER_FRACTION = 0.2
+
+        /**
+         * The floor on an out-of-hours sleep. A window the app could not make sense of, or a
+         * clock that moves under us, must never turn the detach into a dial-refuse-dial spin.
+         */
+        private const val MIN_OUT_OF_HOURS_SLEEP_MS = 60_000L
     }
 }

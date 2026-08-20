@@ -26,6 +26,8 @@ import com.danielealbano.androidremotecontrolmcp.services.connector.DeviceAction
 import com.danielealbano.androidremotecontrolmcp.services.connector.PlatformDeviceActionHandler
 import com.danielealbano.androidremotecontrolmcp.services.connector.crypto.DeviceIdentity
 import com.danielealbano.androidremotecontrolmcp.services.connector.crypto.KeystoreDeviceIdentity
+import com.danielealbano.androidremotecontrolmcp.services.connector.policy.AndroidDeviceEnvironment
+import com.danielealbano.androidremotecontrolmcp.services.connector.policy.DeviceEnvironment
 import com.danielealbano.androidremotecontrolmcp.services.intents.IntentDispatcher
 import com.danielealbano.androidremotecontrolmcp.services.intents.IntentDispatcherImpl
 import com.danielealbano.androidremotecontrolmcp.services.notifications.NotificationProvider
@@ -191,4 +193,11 @@ abstract class ServiceModule {
     @Binds
     @Singleton
     abstract fun bindDeviceActionHandler(impl: PlatformDeviceActionHandler): DeviceActionHandler
+
+    // The seam the policy evaluation reads the device through (clock, keyguard, foreground
+    // package, the OS's own Settings package) — behind an interface so PolicyEnforcer's rules
+    // are unit-testable without a device.
+    @Binds
+    @Singleton
+    abstract fun bindDeviceEnvironment(impl: AndroidDeviceEnvironment): DeviceEnvironment
 }

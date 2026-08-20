@@ -43,6 +43,24 @@ sealed interface ConnectorStatus {
         override val notificationLabel = "Connected"
     }
 
+    /**
+     * Attached, with remote driving PAUSED by the platform (`android-use` / `android-manage`).
+     * The socket stays up — presence, heartbeats and the management actions all still work —
+     * and every relayed command is refused on-device with `policy-paused`.
+     */
+    data object Paused : ConnectorStatus {
+        override val notificationLabel = "Remote driving paused"
+    }
+
+    /**
+     * DETACHED because the platform's active-hours window is closed. Not a failure and not a
+     * backoff: the connector holds no socket at all until the window reopens, which is what
+     * makes "the phone did not act at 3am" a guarantee rather than a server-side promise.
+     */
+    data object OutsideActiveHours : ConnectorStatus {
+        override val notificationLabel = "Outside active hours"
+    }
+
     /** Socket dropped; backing off before the next reconnect. */
     data object Reconnecting : ConnectorStatus {
         override val notificationLabel = "Reconnecting…"

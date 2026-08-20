@@ -1,5 +1,6 @@
 package com.danielealbano.androidremotecontrolmcp.services.connector.protocol
 
+import com.danielealbano.androidremotecontrolmcp.services.connector.policy.DevicePolicy
 import kotlinx.serialization.SerialName
 import kotlinx.serialization.Serializable
 import kotlinx.serialization.json.Json
@@ -45,6 +46,7 @@ data class Frame(
     val payload: JsonElement? = null,
     val action: String? = null,
     val params: JsonElement? = null,
+    val policy: DevicePolicy? = null,
     val error: String? = null,
     val details: String? = null,
     @SerialName("last_seen") val lastSeen: String? = null,
@@ -74,6 +76,13 @@ object FrameType {
     const val PONG = "pong"
     const val CMD = "cmd"
     const val ACTION = "action"
+
+    /**
+     * The device-enforced policy snapshot (`protocol.go` `TypePolicy`). Sent immediately
+     * after [ATTACHED], and again whenever the state it carries changes — today a pause or a
+     * resume on the `android-use` / `android-manage` plane.
+     */
+    const val POLICY = "policy"
     const val ERROR = "error"
 }
 
@@ -95,8 +104,14 @@ object WireError {
 }
 
 /**
- * The four device-action names the gateway may push (wire spec §6.1, `protocol.go:65-73`).
- * `pause`/`resume` are gateway-local and never arrive as frames.
+ * The four device-action names the gateway may push (wire spec §6.1, `protocol.go`
+ * `SupportedActions`).
+ *
+ * `pause`/`resume` are NOT here, and that is the platform's shape rather than an omission:
+ * they are gateway-local state, so they never arrive as an `action` frame. The device learns
+ * about a pause through [FrameType.POLICY] instead — the gateway re-sends the snapshot with
+ * `paused` set, and the connector's own refusal is what makes a pause hold even if the
+ * dispatcher that is supposed to honour it is wrong.
  */
 object ActionName {
     const val LOCK = "lock"

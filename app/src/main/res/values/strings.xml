@@ -15,6 +15,8 @@
     <string name="notification_channel_connector_id">connector_channel</string>
     <string name="notification_channel_connector_name">Platform Connector</string>
     <string name="notification_connector_title">Platform Connector</string>
+    <string name="notification_connector_driving_title">Remote session active</string>
+    <string name="notification_connector_driving_text">This device is being driven remotely right now.</string>
     <string name="connector_terms_title">Enrolment Terms</string>
     <string name="connector_terms_accept">Accept</string>
     <string name="connector_terms_decline">Decline</string>
