@@ -100,11 +100,36 @@ class KeystoreDeviceIdentity
             return try {
                 val keyStore = KeyStore.getInstance(ANDROID_KEYSTORE).apply { load(null) }
                 if (!keyStore.containsAlias(KEY_ALIAS)) return null
-                hardwareMaterial(keyStore)
+                validatedHardwareMaterial(keyStore)
             } catch (e: Exception) {
                 Log.w(TAG, "Failed to load existing hardware key; will consider software fallback", e)
                 null
             }
+        }
+
+        /**
+         * Builds the hardware material and PROVES it before trusting it: an AndroidKeyStore
+         * "Ed25519" key can pass keygen yet produce a DER/ASN.1 signature no raw-ed25519 verifier
+         * accepts (a real OEM quirk — a 71-byte signature seen on a HyperOS device), which would
+         * enrol a device that can then never attach. A key that fails the self-test is deleted so
+         * it is not re-adopted on the next start, and null returns to fall through to the software
+         * key — whose tier the platform records for tethered/physical anyway until the hardware
+         * attestation chain is verified.
+         */
+        private fun validatedHardwareMaterial(keyStore: KeyStore): Material? {
+            val material = hardwareMaterial(keyStore)
+            if (SoftwareEd25519.signerProducesRawEd25519(material.rawPublicKey, material.sign)) {
+                return material
+            }
+            Log.w(
+                TAG,
+                "Hardware ed25519 key failed the raw-signature self-test (the AndroidKeyStore " +
+                    "produced a non-raw or non-verifying signature — a known OEM quirk); discarding " +
+                    "it and falling back to a SOFTWARE key.",
+            )
+            runCatching { keyStore.deleteEntry(KEY_ALIAS) }
+                .onFailure { Log.w(TAG, "Could not delete the rejected hardware key alias", it) }
+            return null
         }
 
         private fun hardwareMaterial(keyStore: KeyStore): Material {
@@ -153,7 +178,7 @@ class KeystoreDeviceIdentity
                     Log.i(TAG, "Generated TEE-backed ed25519 identity key (StrongBox unavailable)")
                 }
                 val keyStore = KeyStore.getInstance(ANDROID_KEYSTORE).apply { load(null) }
-                hardwareMaterial(keyStore)
+                validatedHardwareMaterial(keyStore)
             } catch (e: Exception) {
                 // NoSuchAlgorithmException (no AndroidKeyStore Ed25519), ProviderException, etc.
                 Log.w(TAG, "Hardware ed25519 key generation unavailable (${e.javaClass.simpleName}: ${e.message})")

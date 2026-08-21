@@ -1,10 +1,12 @@
 package com.danielealbano.androidremotecontrolmcp.services.connector.crypto
 
 import org.bouncycastle.jce.provider.BouncyCastleProvider
+import java.security.GeneralSecurityException
 import java.security.KeyFactory
 import java.security.KeyPair
 import java.security.PrivateKey
 import java.security.PublicKey
+import java.security.SecureRandom
 import java.security.Signature
 import java.security.spec.PKCS8EncodedKeySpec
 import java.security.spec.X509EncodedKeySpec
@@ -58,4 +60,73 @@ object SoftwareEd25519 {
 
     /** The raw 32-byte public key, for the enroll frame's `pubkey` field. */
     fun rawPublicKey(publicKey: PublicKey): ByteArray = AttachCrypto.rawPublicKeyFromSpki(publicKey.encoded)
+
+    /**
+     * The fixed SubjectPublicKeyInfo prefix for an Ed25519 key (RFC 8410): the inverse of
+     * [AttachCrypto.rawPublicKeyFromSpki]. Prepending it to a raw 32-byte key yields the X.509
+     * encoding [KeyFactory] needs to rebuild the public key. It is DERIVED once from a throwaway
+     * key's own encoding rather than hardcoded, so there is no opaque byte literal to get wrong —
+     * the prefix is whatever the provider emits minus the trailing raw key.
+     */
+    private val ED25519_SPKI_PREFIX: ByteArray by lazy {
+        val spki = generate().public.encoded
+        spki.copyOfRange(0, spki.size - AttachCrypto.RAW_ED25519_PUBLIC_KEY_SIZE)
+    }
+
+    /** A raw ed25519 signature is exactly 64 bytes (RFC 8032); anything else is not one. */
+    const val RAW_ED25519_SIGNATURE_SIZE = 64
+
+    /** Bytes of the random message the self-test signs — enough to be unforgeable, no more. */
+    private const val SELF_TEST_PROBE_SIZE = 32
+
+    /**
+     * Verifies [signature] over [message] against a RAW 32-byte ed25519 public key, using the
+     * bundled BouncyCastle provider so it resolves identically on device and in JVM tests. This
+     * is the same check credential-service performs server-side (`crypto/ed25519.Verify`), so a
+     * signature this rejects is one the platform will reject too. Returns false — never throws —
+     * on a malformed key or signature, so a caller can treat it as a plain predicate.
+     */
+    fun verify(
+        rawPublicKey: ByteArray,
+        message: ByteArray,
+        signature: ByteArray,
+    ): Boolean {
+        if (rawPublicKey.size != AttachCrypto.RAW_ED25519_PUBLIC_KEY_SIZE) return false
+        return try {
+            val publicKey =
+                KeyFactory
+                    .getInstance(ALGORITHM, provider)
+                    .generatePublic(X509EncodedKeySpec(ED25519_SPKI_PREFIX + rawPublicKey))
+            Signature.getInstance(ALGORITHM, provider).run {
+                initVerify(publicKey)
+                update(message)
+                verify(signature)
+            }
+        } catch (_: GeneralSecurityException) {
+            false
+        }
+    }
+
+    /**
+     * Proves a signer really emits a RAW 64-byte ed25519 signature that verifies against
+     * [rawPublicKey]. The hardware identity path uses this as its acceptance gate: an
+     * AndroidKeyStore "Ed25519" key can pass keygen yet sign in DER/ASN.1 (a real OEM quirk —
+     * observed as a 71-byte signature on a HyperOS device), which no raw-ed25519 verifier will
+     * ever accept, so the enrolled device would be permanently unable to attach. A signer that
+     * fails this test must be rejected in favour of the software key. A software key always
+     * passes. The probe is random so a signer cannot special-case a fixed input.
+     */
+    fun signerProducesRawEd25519(
+        rawPublicKey: ByteArray,
+        sign: (ByteArray) -> ByteArray,
+    ): Boolean {
+        val probe = ByteArray(SELF_TEST_PROBE_SIZE).also { SecureRandom().nextBytes(it) }
+        val signature =
+            try {
+                sign(probe)
+            } catch (_: GeneralSecurityException) {
+                return false
+            }
+        return signature.size == RAW_ED25519_SIGNATURE_SIZE && verify(rawPublicKey, probe, signature)
+    }
 }
