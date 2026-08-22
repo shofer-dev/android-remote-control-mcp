@@ -14,6 +14,7 @@ package com.danielealbano.androidremotecontrolmcp.services.connector
 import android.content.Context
 import android.net.ConnectivityManager
 import android.net.Network
+import android.os.SystemClock
 import android.util.Log
 import com.danielealbano.androidremotecontrolmcp.BuildConfig
 import com.danielealbano.androidremotecontrolmcp.data.model.ConnectorConfig
@@ -28,6 +29,7 @@ import com.danielealbano.androidremotecontrolmcp.services.connector.protocol.Fra
 import com.danielealbano.androidremotecontrolmcp.services.connector.protocol.FrameType
 import com.danielealbano.androidremotecontrolmcp.services.connector.protocol.WireError
 import com.danielealbano.androidremotecontrolmcp.services.mcp.McpToolServerFactory
+import com.danielealbano.androidremotecontrolmcp.utils.MonotonicClock
 import io.modelcontextprotocol.kotlin.sdk.server.ServerSession
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Job
@@ -39,6 +41,7 @@ import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.flow.drop
 import kotlinx.coroutines.flow.first
+import kotlinx.coroutines.flow.update
 import kotlinx.coroutines.isActive
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withTimeoutOrNull
@@ -68,8 +71,17 @@ import kotlin.random.Random
  * telling the outer loop whether to back off and retry or halt until reconfigured.
  *
  * Heartbeat, backoff and network-change awareness follow the wire spec's open questions Q1/Q9:
- * an application-level `ping` every [HEARTBEAT_INTERVAL_MS] (well inside the 90s server lapse),
- * exponential backoff with jitter, and an immediate wake on a new default network.
+ * an application-level `ping` every [ConnectorLiveness.HEARTBEAT_INTERVAL_MS] (well inside the
+ * 90s server lapse), exponential backoff with jitter, and an immediate wake on a new default
+ * network.
+ *
+ * ── Status is grounded in what the SERVER confirms ────────────────────────────────────
+ * The published [status] is never "we hold a socket object". [ConnectorStatus.Connected] is
+ * entered only on the gateway's `attached` frame, and it carries the moment the gateway last
+ * ANSWERED — the `attached` frame itself, then each `pong`. A watchdog rearmed on every answer
+ * ends the connection once [ConnectorLiveness.STALE_AFTER_MS] passes with silence, so a half-open
+ * socket becomes [ConnectorStatus.Reconnecting] and a fresh dial, rather than a notification that
+ * goes on claiming the device is reachable.
  *
  * ── Policy enforcement (`docs/phones/android_remote_control.md` §6.4) ──────────────────
  * The gateway sends a `policy` frame immediately after `attached` and again whenever the
@@ -98,6 +110,7 @@ class PlatformConnector(
     private val policyEnforcer: PolicyEnforcer,
     private val activityIndicator: RemoteActivityIndicator,
     private val appVersion: String = BuildConfig.VERSION_NAME,
+    private val clock: MonotonicClock = MonotonicClock { SystemClock.elapsedRealtime() },
 ) {
     private val _status = MutableStateFlow<ConnectorStatus>(ConnectorStatus.NeedsConfig)
     val status: StateFlow<ConnectorStatus> = _status.asStateFlow()
@@ -136,7 +149,7 @@ class PlatformConnector(
                     continue
                 }
                 if (!config.isEnrolled && config.enrolmentCode.isBlank()) {
-                    _status.value = ConnectorStatus.NeedsConfig
+                    _status.value = ConnectorStatus.NotEnrolled
                     Log.i(TAG, "Not enrolled and no enrolment code; waiting for configuration")
                     awaitConfigChange()
                     continue
@@ -146,8 +159,9 @@ class PlatformConnector(
 
                 when (val result = runConnection(config)) {
                     ConnectionResult.Reconnect -> {
-                        _status.value = ConnectorStatus.Reconnecting
-                        waitBeforeRetry()
+                        val wait = nextRetryDelayMs()
+                        _status.value = ConnectorStatus.Reconnecting(nextRetryAtMillis = clock.nowMillis() + wait)
+                        waitBeforeRetry(wait)
                     }
 
                     is ConnectionResult.OutsideActiveHours -> {
@@ -155,7 +169,8 @@ class PlatformConnector(
                         // a wall-clock fact, and a new radio does not reopen it. Sleeping the
                         // closed stretch is what keeps an overnight window from being an
                         // all-night reconnect storm.
-                        _status.value = ConnectorStatus.OutsideActiveHours
+                        _status.value =
+                            ConnectorStatus.OutsideActiveHours(reopensAtMillis = clock.nowMillis() + result.sleepMillis)
                         Log.i(TAG, "Outside the active-hours window; detached for ${result.sleepMillis}ms")
                         delay(result.sleepMillis)
                         resetBackoff()
@@ -262,10 +277,23 @@ class PlatformConnector(
 
         var heartbeat: Job? = null
         var windowWatchdog: Job? = null
+        var staleWatchdog: Job? = null
+        // Every server answer rearms the watchdog, so silence — not a missing FIN — is what ends
+        // a half-open socket.
+        val onServerAnswer = {
+            markServerHeartbeat()
+            staleWatchdog?.cancel()
+            staleWatchdog = armStaleWatchdog(events)
+        }
         val machine = HandshakeMachine(config)
         try {
             for (event in events) {
                 when (event) {
+                    WsEvent.HeartbeatLapsed -> {
+                        Log.w(TAG, "Gateway silent for ${ConnectorLiveness.STALE_AFTER_MS}ms; the link is lost")
+                        return ConnectionResult.Reconnect
+                    }
+
                     WsEvent.ActiveHoursClosed -> {
                         // The watchdog fired: an open window closed while the socket was up.
                         return ConnectionResult.OutsideActiveHours(sleepUntilWindowOpens())
@@ -282,9 +310,20 @@ class PlatformConnector(
 
                     is WsEvent.Message -> {
                         val result =
-                            machine.onFrame(event.frame, onAttached = { heartbeat = startHeartbeat(ws) }) {
-                                windowWatchdog?.cancel()
-                                windowWatchdog = startWindowWatchdog(events)
+                            if (event.frame.type == FrameType.PONG) {
+                                onServerAnswer()
+                                null
+                            } else {
+                                machine.onFrame(
+                                    event.frame,
+                                    onAttached = {
+                                        heartbeat = startHeartbeat(ws)
+                                        staleWatchdog = armStaleWatchdog(events)
+                                    },
+                                ) {
+                                    windowWatchdog?.cancel()
+                                    windowWatchdog = startWindowWatchdog(events)
+                                }
                             }
                         if (result != null) return result
                     }
@@ -302,6 +341,7 @@ class PlatformConnector(
         } finally {
             heartbeat?.cancel()
             windowWatchdog?.cancel()
+            staleWatchdog?.cancel()
             // The policy dies with the socket that delivered it: a reconnect refuses every
             // command until a fresh snapshot arrives. A policy that outlived its connection
             // is a policy the platform may already have changed.
@@ -315,10 +355,47 @@ class PlatformConnector(
     private fun startHeartbeat(ws: WebSocket): Job =
         scope.launch {
             while (isActive) {
-                delay(HEARTBEAT_INTERVAL_MS)
+                delay(ConnectorLiveness.HEARTBEAT_INTERVAL_MS)
                 ws.send(encode(Frame(type = FrameType.PING)))
             }
         }
+
+    /**
+     * Arms the liveness watchdog. It is rearmed on every server answer, so it only ever fires
+     * after a whole [ConnectorLiveness.STALE_AFTER_MS] of silence — at which point the socket is
+     * ended rather than merely relabelled, because a link the platform has stopped answering on
+     * cannot be recovered by waiting on it.
+     */
+    private fun armStaleWatchdog(events: Channel<WsEvent>): Job =
+        scope.launch {
+            delay(ConnectorLiveness.STALE_AFTER_MS)
+            events.trySend(WsEvent.HeartbeatLapsed)
+        }
+
+    /** Records that the gateway answered, refreshing the timestamp the UI reads freshness from. */
+    private fun markServerHeartbeat() {
+        val now = clock.nowMillis()
+        _status.update { current ->
+            if (current is ConnectorStatus.Attached) current.withHeartbeat(now) else current
+        }
+    }
+
+    /**
+     * Publishes the attached status with [paused] applied, preserving the link's own timestamps
+     * so a policy snapshot never resets the uptime the holder is reading.
+     */
+    private fun publishAttached(paused: Boolean) {
+        _status.update { current ->
+            val attached = current as? ConnectorStatus.Attached
+            val since = attached?.attachedSinceMillis ?: clock.nowMillis()
+            val beat = attached?.lastServerHeartbeatMillis ?: clock.nowMillis()
+            if (paused) {
+                ConnectorStatus.Paused(since, beat)
+            } else {
+                ConnectorStatus.Connected(since, beat)
+            }
+        }
+    }
 
     /**
      * Arms the mid-session active-hours watchdog. A socket attached at 21:59 under an
@@ -423,10 +500,6 @@ class PlatformConnector(
             onPolicyApplied: () -> Unit,
         ): ConnectionResult? =
             when (frame.type) {
-                FrameType.PONG -> {
-                    null
-                }
-
                 FrameType.TERMS -> {
                     onTerms(frame)
                 }
@@ -494,8 +567,7 @@ class PlatformConnector(
             if (policyEnforcer.isOutsideActiveHours()) {
                 return ConnectionResult.OutsideActiveHours(sleepUntilWindowOpens())
             }
-            _status.value =
-                if (snapshot.paused) ConnectorStatus.Paused else ConnectorStatus.Connected
+            publishAttached(paused = snapshot.paused)
             onPolicyApplied()
             return null
         }
@@ -584,7 +656,10 @@ class PlatformConnector(
         private fun onAttached(onAttached: () -> Unit): ConnectionResult? {
             state = HState.ATTACHED
             acceptedTermsHash = null // consumed by the successful attach; a later attach is normal
-            _status.value = ConnectorStatus.Connected
+            // The `attached` frame is itself a server answer, so it seeds the liveness clock:
+            // the link starts fresh and the watchdog has a base even before the first pong.
+            val now = clock.nowMillis()
+            _status.value = ConnectorStatus.Connected(attachedSinceMillis = now, lastServerHeartbeatMillis = now)
             resetBackoff()
             onAttached()
             Log.i(TAG, "Attached; serving relay commands")
@@ -674,9 +749,16 @@ class PlatformConnector(
 
     // ─────────────────────────────── backoff & network ────────────────────────────────────
 
-    private suspend fun waitBeforeRetry() {
+    /**
+     * The jittered wait before the next dial. Computed separately from [waitBeforeRetry] so the
+     * published [ConnectorStatus.Reconnecting] can name the deadline the UI counts down to.
+     */
+    private fun nextRetryDelayMs(): Long {
         val jitter = (backoffMs * JITTER_FRACTION * (Random.nextDouble() * 2 - 1)).toLong()
-        val wait = (backoffMs + jitter).coerceAtLeast(0)
+        return (backoffMs + jitter).coerceAtLeast(0)
+    }
+
+    private suspend fun waitBeforeRetry(wait: Long) {
         Log.i(TAG, "Reconnecting in ${wait}ms")
         withTimeoutOrNull(wait) { wakeups.first() } // wake early on a network change
         backoffMs = (backoffMs * BACKOFF_FACTOR).toLong().coerceAtMost(MAX_BACKOFF_MS)
@@ -736,6 +818,9 @@ class PlatformConnector(
 
         /** The active-hours watchdog fired: an open window closed while the socket was up. */
         data object ActiveHoursClosed : WsEvent
+
+        /** The liveness watchdog fired: the gateway stopped answering on a socket still held. */
+        data object HeartbeatLapsed : WsEvent
     }
 
     private sealed interface ConnectionResult {
@@ -750,7 +835,7 @@ class PlatformConnector(
         ) : ConnectionResult
 
         data class Halt(
-            val status: ConnectorStatus,
+            val status: ConnectorStatus.Halted,
         ) : ConnectionResult
     }
 
@@ -823,7 +908,6 @@ class PlatformConnector(
                 termsHash = acceptedTermsHash,
             )
 
-        private const val HEARTBEAT_INTERVAL_MS = 30_000L
         private const val CONNECT_TIMEOUT_MS = 15_000L
         private const val NORMAL_CLOSURE = 1000
         private const val INITIAL_BACKOFF_MS = 1_000L

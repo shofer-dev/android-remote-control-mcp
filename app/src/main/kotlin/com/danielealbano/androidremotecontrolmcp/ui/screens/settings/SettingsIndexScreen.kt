@@ -12,9 +12,7 @@ import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.KeyboardArrowRight
 import androidx.compose.material.icons.filled.AdminPanelSettings
 import androidx.compose.material.icons.filled.Build
-import androidx.compose.material.icons.filled.CellTower
 import androidx.compose.material.icons.filled.Folder
-import androidx.compose.material.icons.filled.Tune
 import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.Icon
 import androidx.compose.material3.ListItem
@@ -48,18 +46,27 @@ fun SettingsIndexScreen(
     }
 }
 
+/**
+ * The settings the holder of a PLATFORM-attached device can act on.
+ *
+ * The standalone-mode entries are deliberately absent rather than deleted: the local Ktor
+ * server's address and port, and the event channel's outbound webhook, still exist and are still
+ * reachable over the adb configuration broadcast for debugging, but neither runs when the device
+ * is attached, so offering either as a setting would invite a holder to change something that
+ * does nothing. The device slug went the same way for a stronger reason — it prefixes the MCP
+ * tool names the connector serves over the relay, so editing it would silently break dispatch
+ * from the platform.
+ *
+ * What remains all governs behaviour the connector DOES exercise: which tools a relayed command
+ * may reach, the OS permissions those tools need, and the storage locations and download limits
+ * the file tools operate under.
+ */
 @Composable
 private fun SettingsEntriesColumn(
     onNavigate: (String) -> Unit,
     modifier: Modifier = Modifier,
 ) {
     Column(modifier = modifier) {
-        SettingsEntry(
-            icon = Icons.Default.Tune,
-            title = stringResource(R.string.settings_general_title),
-            subtitle = stringResource(R.string.settings_general_subtitle),
-            onClick = { onNavigate(SettingsRoute.General.route) },
-        )
         SettingsEntry(
             icon = Icons.Default.Build,
             title = stringResource(R.string.settings_mcp_tools_title),
@@ -77,12 +84,6 @@ private fun SettingsEntriesColumn(
             title = stringResource(R.string.settings_storage_title),
             subtitle = stringResource(R.string.settings_storage_subtitle),
             onClick = { onNavigate(SettingsRoute.Storage.route) },
-        )
-        SettingsEntry(
-            icon = Icons.Default.CellTower,
-            title = "Event Channel",
-            subtitle = stringResource(R.string.event_channel_subtitle),
-            onClick = { onNavigate(SettingsRoute.ChannelSettings.route) },
         )
     }
 }

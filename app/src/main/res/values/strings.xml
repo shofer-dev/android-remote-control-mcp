@@ -17,6 +17,22 @@
     <string name="notification_connector_title">Platform Connector</string>
     <string name="notification_connector_driving_title">Remote session active</string>
     <string name="notification_connector_driving_text">This device is being driven remotely right now.</string>
+    <string name="notification_connector_connected">Connected to JustCEO</string>
+    <string name="notification_connector_connected_host">Connected to JustCEO (%1$s)</string>
+    <string name="notification_connector_paused">Connected to JustCEO — remote driving paused</string>
+    <string name="notification_connector_reconnecting">Connection lost — reconnecting</string>
+    <string name="notification_connector_halted">Not connected — %1$s</string>
+    <string name="connector_card_title">Platform Connector</string>
+    <string name="connector_card_device">Device</string>
+    <string name="connector_card_host">Edge host</string>
+    <string name="connector_card_enrolled">Enrolled</string>
+    <string name="connector_card_heartbeat">Last platform heartbeat</string>
+    <string name="connector_card_uptime">Attached for</string>
+    <string name="connector_card_yes">Yes</string>
+    <string name="connector_card_no">No</string>
+    <string name="connector_card_unknown">—</string>
+    <string name="connector_card_ago">%1$s ago</string>
+    <string name="connector_card_retry_in">Next attempt in %1$s</string>
     <string name="connector_terms_title">Enrolment Terms</string>
     <string name="connector_terms_accept">Accept</string>
     <string name="connector_terms_decline">Decline</string>
@@ -28,7 +44,7 @@
     <string name="app_bar_title">MCP Remote Control</string>
 
     <!-- Tabs -->
-    <string name="tab_server">Server</string>
+    <string name="tab_server">Connector</string>
     <string name="tab_settings">Settings</string>
     <string name="tab_about">About</string>
 
@@ -50,18 +66,13 @@
     <string name="settings_storage_subtitle">Storage locations, file limits</string>
 
     <!-- About Screen -->
-    <string name="about_author_section">Author</string>
-    <string name="about_author_name">Daniele Salvatore Albano</string>
-    <string name="about_author_email">d.albano@gmail.com</string>
-    <string name="about_author_linkedin">linkedin.com/in/danielesalvatorealbano</string>
-    <string name="about_author_x">x.com/daniele_dll</string>
-    <string name="about_links_section">Links</string>
-    <string name="about_link_github">GitHub Repository</string>
-    <string name="about_link_license">MIT License</string>
-    <string name="about_link_issues">Report an Issue</string>
-    <string name="about_attributions_section">Attributions</string>
-    <string name="about_attribution_dbip">IP geolocation data by DB-IP (db-ip.com), licensed under CC BY 4.0.</string>
-    <string name="about_footer">Open Source • MIT License</string>
+    <string name="about_version">Build %1$s</string>
+    <string name="about_purpose">The JustCEO device connector. This device attaches to your organisation\'s JustCEO platform and is operated remotely under the policy that platform sets.</string>
+    <string name="about_upstream_acknowledgment">Based on Android Remote Control MCP \u00a9 Daniele Albano, MIT License.</string>
+    <string name="about_view_license">View license</string>
+    <string name="about_license_dialog_title">MIT License</string>
+    <string name="about_license_dialog_close">Close</string>
+    <string name="about_license_text">MIT License\n\nCopyright 2026-2027 Daniele Salvatore Albano\n\nPermission is hereby granted, free of charge, to any person obtaining a copy of this software and associated documentation files (the \"Software\"), to deal in the Software without restriction, including without limitation the rights to use, copy, modify, merge, publish, distribute, sublicense, and/or sell copies of the Software, and to permit persons to whom the Software is furnished to do so, subject to the following conditions:\n\nThe above copyright notice and this permission notice shall be included in all copies or substantial portions of the Software.\n\nTHE SOFTWARE IS PROVIDED \"AS IS\", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY, FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT. IN NO EVENT SHALL THE AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM, OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE SOFTWARE.</string>
 
     <!-- Clipboard -->
     <string name="copied_to_clipboard">Copied to clipboard</string>

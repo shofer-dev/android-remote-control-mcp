@@ -4,6 +4,8 @@ package com.danielealbano.androidremotecontrolmcp.data.model
 
 import kotlinx.serialization.Serializable
 import kotlinx.serialization.json.Json
+import java.net.URI
+import java.net.URISyntaxException
 
 /**
  * Configuration and durable state for the platform connector (the `/ws/device` client).
@@ -37,6 +39,28 @@ data class ConnectorConfig(
 ) {
     /** True once the device holds a durable identity and no longer needs a pairing code. */
     val isEnrolled: Boolean get() = deviceId.isNotBlank()
+
+    /**
+     * The host the connector dials, for DISPLAY only — the notification text and the connector
+     * status card. It follows the same precedence the dial does ([gatewayUrl] wins over
+     * [edgeHost]) but reduces a full URL to its authority, because a holder reading a
+     * notification wants to know which platform holds the device, not the path and port.
+     *
+     * A [gatewayUrl] too malformed to parse falls back to the raw value: showing what was
+     * configured is more useful than showing nothing when the reason the connector is halted is
+     * that very string.
+     */
+    val dialHost: String
+        get() {
+            if (gatewayUrl.isBlank()) return edgeHost
+            val authority =
+                try {
+                    URI(gatewayUrl).host
+                } catch (e: URISyntaxException) {
+                    null
+                }
+            return authority ?: gatewayUrl
+        }
 
     fun toJson(): String = json.encodeToString(serializer(), this)
 

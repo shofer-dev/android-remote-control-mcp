@@ -66,6 +66,7 @@ class McpServerService : Service() {
         flags: Int,
         startId: Int,
     ): Int {
+        McpApplication.ensureMcpServerChannel(this)
         startForeground(NOTIFICATION_ID, createNotification())
 
         when (intent?.action) {

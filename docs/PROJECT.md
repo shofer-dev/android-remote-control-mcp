@@ -497,7 +497,13 @@ Each storage location has per-location permission flags controlling what MCP too
 
 ### Screen Structure
 
-HomeScreen contains a TopAppBar, then a scrollable layout with: ServerStatusCard (status, start/stop), ConfigurationSection (binding address, port, token, auto-start, HTTPS, file size limit, download settings), RemoteAccessSection (tunnel toggle, provider selection, ngrok config, tunnel status), StorageLocationsSection (user-managed SAF storage locations with add/edit/delete), PermissionsSection (accessibility/screenshot links), ServerLogsSection (scrollable recent server events including MCP tool calls and tunnel events), and ConnectionInfoCard (IP, port, token, tunnel URL, share button).
+MainScreen hosts three tabs — Connector, Settings, About.
+
+- **Connector** (`ServerScreen`): a permission-warning card when a required permission is missing, then `ConnectorStatusCard` — the platform link's state (grounded in the gateway's own heartbeat), edge host, short device id, enrolment, the age of the last platform heartbeat, and attach uptime.
+- **Settings** (`SettingsIndexScreen` + a nested NavHost): MCP Tools, Permissions, Storage.
+- **About**: app name, build version, what the app is, and the upstream MIT acknowledgment with the license text in a dialog.
+
+The standalone-mode surfaces (`ServerStatusCard`, `ConnectionInfoCard`, `ServerLogsSection`, `GeneralSettingsScreen`, the Event Channel settings tree) are still compiled and still driven by the adb configuration broadcast, but they are not reachable from the UI: none of them run while the device is attached to the platform.
 
 ### Accessibility (UI)
 

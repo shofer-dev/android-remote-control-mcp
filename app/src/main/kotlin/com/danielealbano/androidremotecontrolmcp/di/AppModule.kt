@@ -1,6 +1,7 @@
 package com.danielealbano.androidremotecontrolmcp.di
 
 import android.content.Context
+import android.os.SystemClock
 import androidx.datastore.core.DataStore
 import androidx.datastore.preferences.core.Preferences
 import androidx.datastore.preferences.preferencesDataStore
@@ -48,6 +49,7 @@ import com.danielealbano.androidremotecontrolmcp.services.storage.PermissionChec
 import com.danielealbano.androidremotecontrolmcp.services.storage.PermissionCheckerImpl
 import com.danielealbano.androidremotecontrolmcp.services.storage.StorageLocationProvider
 import com.danielealbano.androidremotecontrolmcp.services.storage.StorageLocationProviderImpl
+import com.danielealbano.androidremotecontrolmcp.utils.MonotonicClock
 import dagger.Binds
 import dagger.Module
 import dagger.Provides
@@ -87,6 +89,15 @@ object AppModule {
     @Provides
     @IoDispatcher
     fun provideIoDispatcher(): CoroutineDispatcher = Dispatchers.IO
+
+    /**
+     * Provides the monotonic time source every elapsed-interval measurement reads.
+     * `elapsedRealtime` rather than the wall clock: a link's age must not jump when the device's
+     * clock is corrected.
+     */
+    @Provides
+    @Singleton
+    fun provideMonotonicClock(): MonotonicClock = MonotonicClock { SystemClock.elapsedRealtime() }
 }
 
 @Module

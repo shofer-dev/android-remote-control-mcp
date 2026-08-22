@@ -3,6 +3,7 @@ package com.danielealbano.androidremotecontrolmcp
 import android.app.Application
 import android.app.NotificationChannel
 import android.app.NotificationManager
+import android.content.Context
 import android.util.Log
 import com.danielealbano.androidremotecontrolmcp.services.apps.AppIconCache
 import com.danielealbano.androidremotecontrolmcp.startup.runFlavorStartupMigrations
@@ -33,19 +34,15 @@ class McpApplication : Application() {
         osmConfig.osmdroidTileCache = cacheDir.resolve("osmdroid")
     }
 
+    /**
+     * Only the connector's channel is created eagerly. The standalone MCP server's channel is
+     * created by that service when it actually starts ([ensureMcpServerChannel]) — creating it
+     * here would list an "MCP Server" row in the OS notification settings of every device that
+     * never runs standalone mode, which is a user-visible surface for a mode the platform build
+     * does not use.
+     */
     private fun createNotificationChannels() {
         val notificationManager = getSystemService(NotificationManager::class.java)
-
-        val mcpServerChannel =
-            NotificationChannel(
-                MCP_SERVER_CHANNEL_ID,
-                getString(R.string.notification_channel_mcp_server_name),
-                NotificationManager.IMPORTANCE_LOW,
-            ).apply {
-                description = "Notification for the running MCP server"
-            }
-
-        notificationManager.createNotificationChannel(mcpServerChannel)
 
         val connectorChannel =
             NotificationChannel(
@@ -63,5 +60,21 @@ class McpApplication : Application() {
         private const val TAG = "MCP:Application"
         const val MCP_SERVER_CHANNEL_ID = "mcp_server_channel"
         const val CONNECTOR_CHANNEL_ID = "connector_channel"
+
+        /**
+         * Creates the standalone MCP server's notification channel. Idempotent — `create` on an
+         * existing channel only updates its name — so the service may call it on every start.
+         */
+        fun ensureMcpServerChannel(context: Context) {
+            val channel =
+                NotificationChannel(
+                    MCP_SERVER_CHANNEL_ID,
+                    context.getString(R.string.notification_channel_mcp_server_name),
+                    NotificationManager.IMPORTANCE_LOW,
+                ).apply {
+                    description = "Notification for the running MCP server"
+                }
+            context.getSystemService(NotificationManager::class.java).createNotificationChannel(channel)
+        }
     }
 }

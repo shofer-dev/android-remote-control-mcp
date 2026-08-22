@@ -18,6 +18,7 @@ import com.danielealbano.androidremotecontrolmcp.services.connector.policy.Polic
 import com.danielealbano.androidremotecontrolmcp.services.mcp.McpToolServerFactory
 import com.danielealbano.androidremotecontrolmcp.ui.ConnectorTermsActivity
 import com.danielealbano.androidremotecontrolmcp.ui.MainActivity
+import com.danielealbano.androidremotecontrolmcp.utils.MonotonicClock
 import dagger.hilt.android.AndroidEntryPoint
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
@@ -58,9 +59,14 @@ class PlatformConnectorService : Service() {
 
     @Inject lateinit var activityIndicator: RemoteActivityIndicator
 
+    @Inject lateinit var clock: MonotonicClock
+
     private val serviceScope = CoroutineScope(SupervisorJob() + Dispatchers.IO)
     private val running = AtomicBoolean(false)
     private var connector: PlatformConnector? = null
+
+    /** The configured gateway host, for the notification text. Written from the config collector. */
+    @Volatile private var dialHost: String = ""
 
     override fun onBind(intent: Intent?): IBinder? = null
 
@@ -100,6 +106,7 @@ class PlatformConnectorService : Service() {
                 serverFactory = serverFactory,
                 policyEnforcer = policyEnforcer,
                 activityIndicator = activityIndicator,
+                clock = clock,
             )
         connector = platformConnector
 
@@ -107,6 +114,15 @@ class PlatformConnectorService : Service() {
             platformConnector.status.collect { status ->
                 _status.value = status
                 updateNotification(status, activityIndicator.driving.value)
+            }
+        }
+        // The notification names the host the device is attached to, so a holder can tell WHICH
+        // platform holds it. That is configuration rather than status, so it is tracked here
+        // instead of riding on every ConnectorStatus value.
+        serviceScope.launch {
+            settingsRepository.connectorConfig.collect { config ->
+                dialHost = config.dialHost
+                updateNotification(_status.value, activityIndicator.driving.value)
             }
         }
         // The activity indicator has its own notification text: a holder glancing at the
@@ -197,10 +213,43 @@ class PlatformConnectorService : Service() {
         } else {
             builder
                 .setContentTitle(getString(R.string.notification_connector_title))
-                .setContentText(status.notificationLabel)
+                .setContentText(statusText(status))
                 .build()
         }
     }
+
+    /**
+     * The notification's status line. The settled states a holder actually acts on get a full
+     * sentence — attached (and to whom), attached-but-paused, lost, and stopped-with-a-reason —
+     * and everything else falls back to the state's own short label, which is already the right
+     * length for a transient handshake step.
+     */
+    private fun statusText(status: ConnectorStatus): String =
+        when (status) {
+            is ConnectorStatus.Connected -> {
+                if (dialHost.isBlank()) {
+                    getString(R.string.notification_connector_connected)
+                } else {
+                    getString(R.string.notification_connector_connected_host, dialHost)
+                }
+            }
+
+            is ConnectorStatus.Paused -> {
+                getString(R.string.notification_connector_paused)
+            }
+
+            is ConnectorStatus.Reconnecting -> {
+                getString(R.string.notification_connector_reconnecting)
+            }
+
+            is ConnectorStatus.Halted -> {
+                getString(R.string.notification_connector_halted, status.reason)
+            }
+
+            else -> {
+                status.notificationLabel
+            }
+        }
 
     companion object {
         private const val TAG = "MCP:ConnectorService"
