@@ -1,5 +1,6 @@
 package com.danielealbano.androidremotecontrolmcp.utils
 
+import android.app.admin.DevicePolicyManager
 import android.content.ActivityNotFoundException
 import android.content.ComponentName
 import android.content.Context
@@ -7,6 +8,8 @@ import android.content.Intent
 import android.net.Uri
 import android.provider.Settings
 import android.util.Log
+import com.danielealbano.androidremotecontrolmcp.R
+import com.danielealbano.androidremotecontrolmcp.services.deviceadmin.PlatformDeviceAdminReceiver
 
 /**
  * Opens the two OS screens that decide whether a background connector survives on this phone.
@@ -66,8 +69,40 @@ object OemKeepAliveSettings {
         openAppDetails(context)
     }
 
-    /** This app's own settings page — the fallback every Android build has. */
-    private fun openAppDetails(context: Context) {
+    /**
+     * Opens the system's confirm-device-admin screen for this app's
+     * [com.danielealbano.androidremotecontrolmcp.services.deviceadmin.PlatformDeviceAdminReceiver],
+     * carrying the explanation the OS shows above the Activate button.
+     *
+     * This is the only sanctioned way in: `DevicePolicyManager` has no API to self-activate, by
+     * design — an administrator the user did not knowingly approve would be the whole threat
+     * model. Falls back to this app's details page on a build that refuses the action (a device
+     * already managed by another owner).
+     */
+    fun openDeviceAdminActivation(context: Context) {
+        val intent =
+            Intent(DevicePolicyManager.ACTION_ADD_DEVICE_ADMIN).apply {
+                putExtra(
+                    DevicePolicyManager.EXTRA_DEVICE_ADMIN,
+                    PlatformDeviceAdminReceiver.componentName(context),
+                )
+                putExtra(
+                    DevicePolicyManager.EXTRA_ADD_EXPLANATION,
+                    context.getString(R.string.permission_audit_device_admin_reason),
+                )
+                addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
+            }
+        if (launch(context, intent)) return
+        Log.i(TAG, "Device admin activation refused; falling back to application details")
+        openAppDetails(context)
+    }
+
+    /**
+     * This app's own settings page. The universal destination: it is where a revoked runtime
+     * permission is re-granted when the app cannot show the runtime dialog (because the holder
+     * chose "don't ask again", which is not a state the app can detect from outside an Activity).
+     */
+    fun openAppDetails(context: Context) {
         val intent =
             Intent(Settings.ACTION_APPLICATION_DETAILS_SETTINGS).apply {
                 data = Uri.fromParts("package", context.packageName, null)

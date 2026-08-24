@@ -10,6 +10,7 @@ import androidx.lifecycle.LifecycleOwner
 import androidx.lifecycle.ProcessLifecycleOwner
 import com.danielealbano.androidremotecontrolmcp.services.apps.AppIconCache
 import com.danielealbano.androidremotecontrolmcp.services.connector.ConnectorEnsure
+import com.danielealbano.androidremotecontrolmcp.services.permissions.PermissionAuditor
 import com.danielealbano.androidremotecontrolmcp.startup.runFlavorStartupMigrations
 import dagger.hilt.android.HiltAndroidApp
 import kotlinx.coroutines.CoroutineScope
@@ -26,6 +27,9 @@ class McpApplication : Application() {
 
     @Inject
     lateinit var connectorEnsure: ConnectorEnsure
+
+    @Inject
+    lateinit var permissionAuditor: PermissionAuditor
 
     /**
      * Application-scoped and deliberately never cancelled: it outlives every activity, which is
@@ -57,11 +61,17 @@ class McpApplication : Application() {
      * app to see why the device is offline is, by that act, bringing it back. A foreground app is
      * also exempt from the Android 12+ background foreground-service-start restriction, so unlike
      * the watchdog this start cannot be refused.
+     *
+     * The permissions audit rides the same transition, and the ordering is deliberate: the audit
+     * runs FIRST, so a holder opening the app because the device went quiet sees the real reason
+     * ("accessibility is off") rather than watching a connector start and immediately fail to do
+     * anything useful.
      */
     private fun observeAppForeground() {
         ProcessLifecycleOwner.get().lifecycle.addObserver(
             object : DefaultLifecycleObserver {
                 override fun onStart(owner: LifecycleOwner) {
+                    permissionAuditor.refresh()
                     applicationScope.launch {
                         connectorEnsure.ensure(ConnectorEnsure.REASON_FOREGROUND)
                     }
@@ -78,11 +88,16 @@ class McpApplication : Application() {
     }
 
     /**
-     * Only the connector's channel is created eagerly. The standalone MCP server's channel is
-     * created by that service when it actually starts ([ensureMcpServerChannel]) — creating it
-     * here would list an "MCP Server" row in the OS notification settings of every device that
-     * never runs standalone mode, which is a user-visible surface for a mode the platform build
-     * does not use.
+     * The connector's channel and the permissions channel are created eagerly; the standalone MCP
+     * server's is created by that service when it actually starts ([ensureMcpServerChannel]) —
+     * creating it here would list an "MCP Server" row in the OS notification settings of every
+     * device that never runs standalone mode, which is a user-visible surface for a mode the
+     * platform build does not use.
+     *
+     * The permissions audit gets a channel of its OWN rather than borrowing the connector's, so a
+     * holder who mutes one keeps the other. Muting the connector's ongoing row and thereby losing
+     * the "you are missing accessibility" nudge — or the reverse — would be a silent coupling
+     * between two unrelated decisions.
      */
     private fun createNotificationChannels() {
         val notificationManager = getSystemService(NotificationManager::class.java)
@@ -96,13 +111,24 @@ class McpApplication : Application() {
                 description = "Notification for the platform connector"
             }
 
+        val permissionsChannel =
+            NotificationChannel(
+                PERMISSIONS_CHANNEL_ID,
+                getString(R.string.notification_channel_permissions_name),
+                NotificationManager.IMPORTANCE_LOW,
+            ).apply {
+                description = "Permissions this device needs in order to be operated"
+            }
+
         notificationManager.createNotificationChannel(connectorChannel)
+        notificationManager.createNotificationChannel(permissionsChannel)
     }
 
     companion object {
         private const val TAG = "MCP:Application"
         const val MCP_SERVER_CHANNEL_ID = "mcp_server_channel"
         const val CONNECTOR_CHANNEL_ID = "connector_channel"
+        const val PERMISSIONS_CHANNEL_ID = "permissions_channel"
 
         /**
          * Creates the standalone MCP server's notification channel. Idempotent — `create` on an

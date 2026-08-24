@@ -463,6 +463,49 @@ unspent `enrolmentCode`). Four callers ask it and none re-implements it:
   why the keep-alive hint links there; nothing is blocked on either.
 - Boot and the foreground transition are both exempt, so those two starts cannot be refused.
 
+### Permissions audit
+
+A device can be enrolled, attached and reporting "Connected" while being completely unable to act
+— accessibility switched off by a system update is enough. The audit is what makes that findable
+without anyone going looking for it.
+
+`MissingPermissions` (pure, unit-tested) evaluates a `PermissionSnapshot` built by
+`PermissionAuditor` from the checks the rest of the app already trusts (`PermissionUtils`,
+`PlatformDeviceAdminReceiver.isAdminActive`, `PowerManager.isIgnoringBatteryOptimizations`). An
+absent entry counts as NOT granted — an audit that hides findings is worse than none.
+
+The catalog (`RequiredPermission`) is curated, not derived from `<uses-permission>`: that list
+carries unrevokable install-time permissions and standalone-mode ones, and cannot express
+accessibility or device admin at all, which are component bindings.
+
+| grant | kind | criticality | why |
+|---|---|---|---|
+| Accessibility service | special access | operational | reading the screen and dispatching gestures — the whole driving plane |
+| `POST_NOTIFICATIONS` | runtime | operational | the attached/being-driven signal and the reconnect nudge; denied, the device can still be driven but can no longer tell anyone |
+| Device administrator | special access | operational | the custody plane's `lock` / `wipe` |
+| Battery-optimisation exclusion | special access | operational | the watchdog's background revive |
+| Notification access | special access | tool surface | the notification tool family |
+| `CAMERA` / `RECORD_AUDIO` / `ACCESS_FINE_LOCATION` | runtime | tool surface | those tool families; location also backs the `locate` device action |
+
+**OEM autostart is deliberately NOT audited** — no API answers "may this app start itself on this
+vendor's build", so it can only be advice. It stays an action on the keep-alive card.
+
+Two surfaces, evaluated on the same two ticks as the connector ensure (app foreground, watchdog):
+
+- **`PermissionsHintCard`** lists every missing grant with a button to the exact place it is
+  granted. Battery optimisation renders as a cross-reference to the keep-alive card rather than a
+  second button to the same screen.
+- **A notification** (`permissions_channel`, low importance, ongoing) posts only when an
+  OPERATIONAL grant is missing; tapping it opens `MainActivity` routed to the permissions screen.
+  Re-posts are quiet for 15 minutes unless the operational set CHANGES, and it is cancelled the
+  moment the audit comes back clean. When `POST_NOTIFICATIONS` is itself the missing grant the
+  card is the only surface — a notification cannot ask for the right to notify.
+
+**Dismissal is session-scoped, unlike the keep-alive hint's.** That hint is advice about a risk and
+is dismissed forever; a missing required grant is a fault that is true right now, so "Not now"
+lasts until the next evaluation. Persisting it would let a device sit un-drivable indefinitely
+with every surface claiming it is fine.
+
 ### Threading Rules
 
 - All AccessibilityService operations and UI operations MUST run on main thread
@@ -527,7 +570,7 @@ unspent `enrolmentCode`). Four callers ask it and none re-implements it:
 
 MainScreen hosts three tabs — Connector, Settings, About.
 
-- **Connector** (`ServerScreen`): a permission-warning card when a required permission is missing, then `ConnectorStatusCard` — the platform link's state (grounded in the gateway's own heartbeat), edge host, short device id, enrolment, the age of the last platform heartbeat, attach uptime, and a Start/Stop control. An explicit Stop is durable and vetoes every self-heal path (see "Platform connector lifecycle"), so the card says so underneath rather than leaving a deliberate stop looking like a failure. Below it, once the device is enrolled, a dismissible `ConnectorKeepAliveHintCard` links to the OEM autostart screen and the battery-optimisation list.
+- **Connector** (`ServerScreen`): a needs-attention area, then `ConnectorStatusCard` — the platform link's state (grounded in the gateway's own heartbeat), edge host, short device id, enrolment, the age of the last platform heartbeat, attach uptime, and a Start/Stop control. An explicit Stop is durable and vetoes every self-heal path (see "Platform connector lifecycle"), so the card says so underneath rather than leaving a deliberate stop looking like a failure. The needs-attention area above it is `PermissionsHintCard` (the permissions audit — see below); below it, once the device is enrolled, a dismissible `ConnectorKeepAliveHintCard` links to the OEM autostart screen and the battery-optimisation list.
 - **Settings** (`SettingsIndexScreen` + a nested NavHost): MCP Tools, Permissions, Storage.
 - **About**: app name, build version, what the app is, and the upstream MIT acknowledgment with the license text in a dialog.
 

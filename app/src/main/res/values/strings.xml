@@ -43,6 +43,31 @@
     <string name="connector_keepalive_autostart">Autostart settings</string>
     <string name="connector_keepalive_battery">Battery settings</string>
     <string name="connector_keepalive_dismiss">Dismiss</string>
+    <string name="notification_channel_permissions_name">Permissions</string>
+    <string name="notification_permissions_title">JustCEO needs permissions to operate this device</string>
+    <string name="notification_permissions_text">Missing: %1$s. Tap to review and grant them.</string>
+    <string name="permission_audit_title">Permissions needed</string>
+    <string name="permission_audit_body">This device cannot be fully operated until the items below are granted.</string>
+    <string name="permission_audit_body_tools">The device can be operated, but the tools below are unavailable until they are granted.</string>
+    <string name="permission_audit_fix">Fix</string>
+    <string name="permission_audit_dismiss">Not now</string>
+    <string name="permission_audit_see_below">See the card below.</string>
+    <string name="permission_audit_accessibility">Accessibility service</string>
+    <string name="permission_audit_accessibility_reason">Reading the screen and performing taps. Nothing can be operated without it.</string>
+    <string name="permission_audit_notifications">Notifications</string>
+    <string name="permission_audit_notifications_reason">Showing that this device is attached, and warning you while it is being driven.</string>
+    <string name="permission_audit_device_admin">Device administrator</string>
+    <string name="permission_audit_device_admin_reason">Letting your organisation lock or erase this device if it is lost or stolen.</string>
+    <string name="permission_audit_battery">Battery optimisation exclusion</string>
+    <string name="permission_audit_battery_reason">Letting the connector restart itself after the system stops it.</string>
+    <string name="permission_audit_notification_listener">Notification access</string>
+    <string name="permission_audit_notification_listener_reason">Reading and acting on the notifications this device receives.</string>
+    <string name="permission_audit_camera">Camera</string>
+    <string name="permission_audit_camera_reason">Taking photos when asked to.</string>
+    <string name="permission_audit_microphone">Microphone</string>
+    <string name="permission_audit_microphone_reason">Recording audio when asked to.</string>
+    <string name="permission_audit_location">Location</string>
+    <string name="permission_audit_location_reason">Reporting where this device is, including when you ask your organisation to locate it.</string>
     <string name="connector_terms_title">Enrolment Terms</string>
     <string name="connector_terms_accept">Accept</string>
     <string name="connector_terms_decline">Decline</string>
@@ -140,7 +165,6 @@
     <string name="permission_location">Location</string>
 
     <!-- Permission Warning -->
-    <string name="permission_warning_message">Some permissions are not granted. Tap to review.</string>
 
     <!-- Server Logs -->
     <string name="server_logs_title">Server Logs</string>

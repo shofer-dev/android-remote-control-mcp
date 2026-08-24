@@ -4,6 +4,7 @@ import android.content.Context
 import android.util.Log
 import androidx.work.CoroutineWorker
 import androidx.work.WorkerParameters
+import com.danielealbano.androidremotecontrolmcp.services.permissions.PermissionAuditor
 import dagger.hilt.EntryPoint
 import dagger.hilt.InstallIn
 import dagger.hilt.android.EntryPointAccessors
@@ -11,7 +12,8 @@ import dagger.hilt.components.SingletonComponent
 
 /**
  * The periodic self-heal tick: every 15 minutes, ask [ConnectorEnsure] whether the connector
- * should be running and start it if it is not.
+ * should be running and start it if it is not, and re-run the permissions audit
+ * ([PermissionAuditor]) so a grant that disappeared is reported without the app being opened.
  *
  * This is the path that repairs a connector killed while the app is closed — the HyperOS failure
  * mode where `START_STICKY` is suppressed, `BOOT_COMPLETED` never arrives (no vendor autostart
@@ -39,20 +41,25 @@ class ConnectorWatchdogWorker(
     params: WorkerParameters,
 ) : CoroutineWorker(appContext, params) {
     override suspend fun doWork(): Result {
-        val ensure =
+        val entryPoint =
             EntryPointAccessors
-                .fromApplication(applicationContext, ConnectorEnsureEntryPoint::class.java)
-                .connectorEnsure()
-        val outcome = ensure.ensure(REASON)
-        Log.i(TAG, "Watchdog tick: $outcome")
+                .fromApplication(applicationContext, WatchdogEntryPoint::class.java)
+        // The audit runs on the same tick, and this is its ONLY background surface: a holder who
+        // never opens the app would otherwise never learn that a system update switched
+        // accessibility off and left the device attached but unable to do anything.
+        val audit = entryPoint.permissionAuditor().refresh()
+        val outcome = entryPoint.connectorEnsure().ensure(REASON)
+        Log.i(TAG, "Watchdog tick: $outcome, ${audit.missing.size} permissions missing")
         return Result.success()
     }
 
-    /** Hands the worker the singleton [ConnectorEnsure] from the application's Hilt graph. */
+    /** Hands the worker the singletons it drives from the application's Hilt graph. */
     @EntryPoint
     @InstallIn(SingletonComponent::class)
-    interface ConnectorEnsureEntryPoint {
+    interface WatchdogEntryPoint {
         fun connectorEnsure(): ConnectorEnsure
+
+        fun permissionAuditor(): PermissionAuditor
     }
 
     companion object {

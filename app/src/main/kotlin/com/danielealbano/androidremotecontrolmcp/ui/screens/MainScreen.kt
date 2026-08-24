@@ -21,20 +21,26 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.res.stringResource
 import androidx.hilt.navigation.compose.hiltViewModel
 import com.danielealbano.androidremotecontrolmcp.R
+import com.danielealbano.androidremotecontrolmcp.ui.PermissionRequesters
 import com.danielealbano.androidremotecontrolmcp.ui.navigation.SettingsRoute
 import com.danielealbano.androidremotecontrolmcp.ui.navigation.TopLevelRoute
 import com.danielealbano.androidremotecontrolmcp.ui.viewmodels.MainViewModel
 
 @Composable
 fun MainScreen(
-    onRequestNotificationPermission: () -> Unit,
-    onRequestCameraPermission: () -> Unit,
-    onRequestMicrophonePermission: () -> Unit,
-    onRequestLocationPermission: () -> Unit,
+    permissionRequesters: PermissionRequesters,
+    openPermissionsOnLaunch: Boolean = false,
     viewModel: MainViewModel = hiltViewModel(),
 ) {
-    var selectedTabRoute by rememberSaveable { mutableStateOf(TopLevelRoute.Server.route) }
-    var pendingSettingsRoute by rememberSaveable { mutableStateOf<String?>(null) }
+    // Seeded rather than applied in a LaunchedEffect: the deep link decides where the FIRST frame
+    // lands, so routing it as an effect would flash the Connector tab before jumping away.
+    // rememberSaveable then makes a rotation keep wherever the holder navigated to since.
+    var selectedTabRoute by rememberSaveable {
+        mutableStateOf(if (openPermissionsOnLaunch) TopLevelRoute.Settings.route else TopLevelRoute.Server.route)
+    }
+    var pendingSettingsRoute by rememberSaveable {
+        mutableStateOf<String?>(if (openPermissionsOnLaunch) SettingsRoute.Permissions.route else null)
+    }
 
     Scaffold(
         bottomBar = {
@@ -62,16 +68,15 @@ fun MainScreen(
                         selectedTabRoute = TopLevelRoute.Settings.route
                     },
                     modifier = Modifier.padding(paddingValues),
-                    viewModel = viewModel,
                 )
             }
 
             TopLevelRoute.Settings.route -> {
                 SettingsScreen(
-                    onRequestNotificationPermission = onRequestNotificationPermission,
-                    onRequestCameraPermission = onRequestCameraPermission,
-                    onRequestMicrophonePermission = onRequestMicrophonePermission,
-                    onRequestLocationPermission = onRequestLocationPermission,
+                    onRequestNotificationPermission = permissionRequesters.onRequestNotification,
+                    onRequestCameraPermission = permissionRequesters.onRequestCamera,
+                    onRequestMicrophonePermission = permissionRequesters.onRequestMicrophone,
+                    onRequestLocationPermission = permissionRequesters.onRequestLocation,
                     pendingRoute = pendingSettingsRoute,
                     onPendingRouteConsumed = { pendingSettingsRoute = null },
                     modifier = Modifier.padding(paddingValues),
@@ -90,7 +95,6 @@ fun MainScreen(
                         selectedTabRoute = TopLevelRoute.Settings.route
                     },
                     modifier = Modifier.padding(paddingValues),
-                    viewModel = viewModel,
                 )
             }
         }
