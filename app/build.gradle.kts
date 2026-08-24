@@ -311,6 +311,11 @@ dependencies {
     implementation(libs.lifecycle.runtime.ktx)
     implementation(libs.lifecycle.viewmodel.compose)
     implementation(libs.lifecycle.runtime.compose)
+    // ProcessLifecycleOwner — the whole-app foreground transition the connector's ensure hook rides on
+    implementation(libs.lifecycle.process)
+
+    // WorkManager — the connector watchdog's periodic self-heal job
+    implementation(libs.work.runtime.ktx)
 
     // DataStore
     implementation(libs.datastore.preferences)

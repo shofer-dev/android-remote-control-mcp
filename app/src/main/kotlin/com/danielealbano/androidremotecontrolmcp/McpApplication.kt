@@ -5,9 +5,17 @@ import android.app.NotificationChannel
 import android.app.NotificationManager
 import android.content.Context
 import android.util.Log
+import androidx.lifecycle.DefaultLifecycleObserver
+import androidx.lifecycle.LifecycleOwner
+import androidx.lifecycle.ProcessLifecycleOwner
 import com.danielealbano.androidremotecontrolmcp.services.apps.AppIconCache
+import com.danielealbano.androidremotecontrolmcp.services.connector.ConnectorEnsure
 import com.danielealbano.androidremotecontrolmcp.startup.runFlavorStartupMigrations
 import dagger.hilt.android.HiltAndroidApp
+import kotlinx.coroutines.CoroutineScope
+import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.SupervisorJob
+import kotlinx.coroutines.launch
 import org.osmdroid.config.Configuration
 import javax.inject.Inject
 
@@ -15,6 +23,15 @@ import javax.inject.Inject
 class McpApplication : Application() {
     @Inject
     lateinit var appIconCache: AppIconCache
+
+    @Inject
+    lateinit var connectorEnsure: ConnectorEnsure
+
+    /**
+     * Application-scoped and deliberately never cancelled: it outlives every activity, which is
+     * the point — the foreground hook must survive the activity that triggered it going away.
+     */
+    private val applicationScope = CoroutineScope(SupervisorJob() + Dispatchers.IO)
 
     override fun onCreate() {
         super.onCreate()
@@ -24,7 +41,33 @@ class McpApplication : Application() {
         createNotificationChannels()
         configureOsmdroid()
         appIconCache.preload()
+        observeAppForeground()
+        connectorEnsure.scheduleWatchdog()
         Log.i(TAG, "Application initialized, notification channels created")
+    }
+
+    /**
+     * Ensures the platform connector is running whenever the APP becomes visible.
+     *
+     * `ProcessLifecycleOwner` is what makes this "the app came to the foreground" rather than "an
+     * activity resumed": it fires once per foreground session, not on every rotation or every hop
+     * between tabs, so opening the app performs exactly one ensure.
+     *
+     * This is the path that answers the product gap the OEM kills exposed — a holder who opens the
+     * app to see why the device is offline is, by that act, bringing it back. A foreground app is
+     * also exempt from the Android 12+ background foreground-service-start restriction, so unlike
+     * the watchdog this start cannot be refused.
+     */
+    private fun observeAppForeground() {
+        ProcessLifecycleOwner.get().lifecycle.addObserver(
+            object : DefaultLifecycleObserver {
+                override fun onStart(owner: LifecycleOwner) {
+                    applicationScope.launch {
+                        connectorEnsure.ensure(ConnectorEnsure.REASON_FOREGROUND)
+                    }
+                }
+            },
+        )
     }
 
     private fun configureOsmdroid() {

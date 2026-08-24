@@ -6,6 +6,7 @@ import android.content.Intent
 import android.util.Log
 import com.danielealbano.androidremotecontrolmcp.data.repository.SettingsRepository
 import com.danielealbano.androidremotecontrolmcp.services.channel.EventChannelService
+import com.danielealbano.androidremotecontrolmcp.services.connector.ConnectorAutoStart
 import com.danielealbano.androidremotecontrolmcp.services.connector.PlatformConnectorService
 import dagger.hilt.android.AndroidEntryPoint
 import kotlinx.coroutines.CoroutineScope
@@ -66,10 +67,14 @@ class BootCompletedReceiver : BroadcastReceiver() {
                         Log.i(TAG, "Event channel auto-started on boot")
                     }
 
-                    // Platform connector auto-start (only once enrolled or holding a code)
+                    // Platform connector auto-start. The condition is NOT spelled out here: it is
+                    // ConnectorAutoStart, shared with the foreground hook and the watchdog, so a
+                    // boot and a watchdog tick can never disagree about whether this device wants
+                    // a connector. Boot is also one of the documented exemptions from the Android
+                    // 12+ background foreground-service-start restriction, which is why this call
+                    // needs no fallback.
                     val connectorConfig = settingsRepository.getConnectorConfig()
-                    val hasCredential = connectorConfig.isEnrolled || connectorConfig.enrolmentCode.isNotBlank()
-                    if (connectorConfig.autoStart && connectorConfig.edgeHost.isNotBlank() && hasCredential) {
+                    if (ConnectorAutoStart.shouldRun(connectorConfig)) {
                         val connectorIntent =
                             Intent(context, PlatformConnectorService::class.java).apply {
                                 action = PlatformConnectorService.ACTION_START

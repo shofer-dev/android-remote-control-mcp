@@ -111,4 +111,45 @@ class AdbConfigHandlerTest {
             coVerify(exactly = 1) { settingsRepository.updateConnectorAutoStart(false) }
             verify(exactly = 0) { context.startForegroundService(any()) }
         }
+
+    @Test
+    fun `connector_auto_start true clears an earlier explicit stop`() =
+        runTest {
+            // Otherwise a supervisor's re-provision would persist auto_start=true and then be
+            // undone by the stop veto the previous ADB_STOP_CONNECTOR left behind.
+            val intent = configureIntent()
+            every { intent.hasExtra(AdbConfigHandler.EXTRA_CONNECTOR_AUTO_START) } returns true
+            every { intent.getBooleanExtra(AdbConfigHandler.EXTRA_CONNECTOR_AUTO_START, false) } returns true
+            val context = mockk<Context>(relaxed = true)
+
+            handler.handle(context, intent)
+
+            coVerify(exactly = 1) { settingsRepository.updateConnectorStoppedByUser(false) }
+        }
+
+    @Test
+    fun `an adb start clears the stop veto`() =
+        runTest {
+            val intent = mockk<Intent>()
+            every { intent.action } returns AdbConfigReceiver.ACTION_START_CONNECTOR
+            val context = mockk<Context>(relaxed = true)
+
+            handler.handle(context, intent)
+
+            coVerify(exactly = 1) { settingsRepository.updateConnectorStoppedByUser(false) }
+            verify(exactly = 1) { anyConstructed<Intent>().setAction(PlatformConnectorService.ACTION_START) }
+        }
+
+    @Test
+    fun `an adb stop sets the stop veto so the watchdog leaves it down`() =
+        runTest {
+            val intent = mockk<Intent>()
+            every { intent.action } returns AdbConfigReceiver.ACTION_STOP_CONNECTOR
+            val context = mockk<Context>(relaxed = true)
+
+            handler.handle(context, intent)
+
+            coVerify(exactly = 1) { settingsRepository.updateConnectorStoppedByUser(true) }
+            verify(exactly = 1) { anyConstructed<Intent>().setAction(PlatformConnectorService.ACTION_STOP) }
+        }
 }

@@ -435,6 +435,34 @@ Each storage location has per-location permission flags controlling what MCP too
 - Never store Activity context in long-lived objects — use ApplicationContext
 - Cancel coroutine scopes in `onDestroy()`; recycle large bitmaps after encoding; use `use {}` for automatic stream closure
 
+### Platform connector lifecycle
+
+`START_STICKY` is a request, not a guarantee. OEM builds (HyperOS, One UI, EMUI) kill a foreground
+service and suppress the sticky restart, and `BOOT_COMPLETED` never arrives without the vendor's
+autostart permission — so `PlatformConnectorService` must be revivable without a reboot.
+
+One predicate decides it for everybody: `ConnectorAutoStart.shouldRun(config)` — auto-start on, no
+explicit stop, a dial target (`gatewayUrl` or `edgeHost`), and a credential (`deviceId` or an
+unspent `enrolmentCode`). Four callers ask it and none re-implements it:
+
+| path | trigger | file |
+|---|---|---|
+| Boot | `ACTION_BOOT_COMPLETED` | `services/mcp/BootCompletedReceiver.kt` |
+| Foreground | `ProcessLifecycleOwner` `onStart` — opening the app | `McpApplication.kt` → `ConnectorEnsure.ensure` |
+| Watchdog | unique periodic WorkManager job, 15 min (the platform minimum) | `services/connector/ConnectorWatchdogWorker.kt` |
+| Explicit | the card's Start/Stop | `ui/viewmodels/ConnectorViewModel.kt` → `ConnectorEnsure.start`/`stop` |
+
+- **The stop veto.** An explicit Stop — from the card or from `ADB_STOP_CONNECTOR` — persists
+  `ConnectorConfig.stoppedByUser`, and every revive path respects it. An explicit Start, a
+  `connector_auto_start=true` configure, or a fresh enrolment clears it.
+- **The Android 12+ background wall.** An app in the background may not call
+  `startForegroundService` at all, and neither WorkManager nor JobScheduler is on the exemption
+  list. The watchdog therefore catches `ForegroundServiceStartNotAllowedException` and posts a
+  tap-to-reconnect notification whose action carries the same start intent — a user tap on a
+  notification IS an exemption. Excluding the app from battery optimisation is another, which is
+  why the keep-alive hint links there; nothing is blocked on either.
+- Boot and the foreground transition are both exempt, so those two starts cannot be refused.
+
 ### Threading Rules
 
 - All AccessibilityService operations and UI operations MUST run on main thread
@@ -499,7 +527,7 @@ Each storage location has per-location permission flags controlling what MCP too
 
 MainScreen hosts three tabs — Connector, Settings, About.
 
-- **Connector** (`ServerScreen`): a permission-warning card when a required permission is missing, then `ConnectorStatusCard` — the platform link's state (grounded in the gateway's own heartbeat), edge host, short device id, enrolment, the age of the last platform heartbeat, and attach uptime.
+- **Connector** (`ServerScreen`): a permission-warning card when a required permission is missing, then `ConnectorStatusCard` — the platform link's state (grounded in the gateway's own heartbeat), edge host, short device id, enrolment, the age of the last platform heartbeat, attach uptime, and a Start/Stop control. An explicit Stop is durable and vetoes every self-heal path (see "Platform connector lifecycle"), so the card says so underneath rather than leaving a deliberate stop looking like a failure. Below it, once the device is enrolled, a dismissible `ConnectorKeepAliveHintCard` links to the OEM autostart screen and the battery-optimisation list.
 - **Settings** (`SettingsIndexScreen` + a nested NavHost): MCP Tools, Permissions, Storage.
 - **About**: app name, build version, what the app is, and the upstream MIT acknowledgment with the license text in a dialog.
 

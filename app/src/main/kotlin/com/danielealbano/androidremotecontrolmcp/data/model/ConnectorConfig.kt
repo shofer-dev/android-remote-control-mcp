@@ -28,6 +28,13 @@ import java.net.URISyntaxException
  * distinguishes "must enrol" from "may attach".
  *
  * [autoStart] gates whether the connector foreground service starts on boot / app launch.
+ *
+ * [stoppedByUser] is the VETO over [autoStart]: it records that a human (or the adb supervisor)
+ * stopped the connector deliberately, so none of the three revive paths — boot, the
+ * app-came-to-the-foreground hook, the watchdog — may bring it back. It is durable for the same
+ * reason [autoStart] is: a decision that survives a reboot is the only kind that means anything on
+ * a device whose OEM restarts things behind the user's back. An explicit start, or a fresh
+ * enrolment, clears it.
  */
 @Serializable
 data class ConnectorConfig(
@@ -36,6 +43,7 @@ data class ConnectorConfig(
     val enrolmentCode: String = "",
     val deviceId: String = "",
     val autoStart: Boolean = false,
+    val stoppedByUser: Boolean = false,
 ) {
     /** True once the device holds a durable identity and no longer needs a pairing code. */
     val isEnrolled: Boolean get() = deviceId.isNotBlank()

@@ -3,9 +3,11 @@ package com.danielealbano.androidremotecontrolmcp.ui.viewmodels
 import app.cash.turbine.test
 import com.danielealbano.androidremotecontrolmcp.data.model.ConnectorConfig
 import com.danielealbano.androidremotecontrolmcp.data.repository.SettingsRepository
+import com.danielealbano.androidremotecontrolmcp.services.connector.ConnectorEnsure
 import com.danielealbano.androidremotecontrolmcp.services.connector.ConnectorLiveness
 import com.danielealbano.androidremotecontrolmcp.services.connector.ConnectorStatus
 import com.danielealbano.androidremotecontrolmcp.utils.MonotonicClock
+import io.mockk.coVerify
 import io.mockk.every
 import io.mockk.mockk
 import kotlinx.coroutines.Dispatchers
@@ -31,11 +33,14 @@ class ConnectorViewModelTest {
     private val testDispatcher = StandardTestDispatcher()
     private val settingsRepository = mockk<SettingsRepository>(relaxed = true)
     private val configFlow = MutableStateFlow(ConnectorConfig())
+    private val hintDismissedFlow = MutableStateFlow(false)
+    private val connectorEnsure = mockk<ConnectorEnsure>(relaxed = true)
 
     @BeforeEach
     fun setup() {
         Dispatchers.setMain(testDispatcher)
         every { settingsRepository.connectorConfig } returns configFlow
+        every { settingsRepository.connectorKeepAliveHintDismissed } returns hintDismissedFlow
     }
 
     @AfterEach
@@ -175,6 +180,44 @@ class ConnectorViewModelTest {
         }
 
         @Test
+        fun `a stopped connector is reported as not running`() {
+            val state =
+                ConnectorViewModel.buildState(
+                    status = ConnectorStatus.Stopped,
+                    config = ENROLLED_CONFIG,
+                    nowMillis = 0,
+                )
+
+            assertFalse(state.isRunning)
+        }
+
+        @Test
+        fun `a halted connector is still RUNNING, because the service is up`() {
+            // The distinction the Start/Stop control depends on: only Stopped means "no service".
+            val state =
+                ConnectorViewModel.buildState(
+                    status = ConnectorStatus.AttachRejected("device revoked"),
+                    config = ENROLLED_CONFIG,
+                    nowMillis = 0,
+                )
+
+            assertTrue(state.isRunning)
+        }
+
+        @Test
+        fun `the durable stop veto is projected onto the card`() {
+            val state =
+                ConnectorViewModel.buildState(
+                    status = ConnectorStatus.Stopped,
+                    config = ENROLLED_CONFIG.copy(stoppedByUser = true),
+                    nowMillis = 0,
+                )
+
+            assertTrue(state.stoppedByUser)
+            assertFalse(state.isRunning)
+        }
+
+        @Test
         fun `an explicit gateway url is shown by host, not verbatim`() {
             val state =
                 ConnectorViewModel.buildState(
@@ -200,7 +243,7 @@ class ConnectorViewModelTest {
                 configFlow.value = ENROLLED_CONFIG
                 // The ticker never completes, so the flow is read with Turbine and cancelled
                 // rather than drained.
-                val viewModel = ConnectorViewModel(settingsRepository, MonotonicClock { NOW })
+                val viewModel = ConnectorViewModel(settingsRepository, connectorEnsure, MonotonicClock { NOW })
 
                 viewModel.uiState.test {
                     assertEquals(ConnectorUiState(), awaitItem()) // stateIn's seed
@@ -215,7 +258,7 @@ class ConnectorViewModelTest {
         @Test
         fun `a configuration change re-projects without a clock tick`() =
             runTest {
-                val viewModel = ConnectorViewModel(settingsRepository, MonotonicClock { NOW })
+                val viewModel = ConnectorViewModel(settingsRepository, connectorEnsure, MonotonicClock { NOW })
 
                 viewModel.uiState.test {
                     // The seed and the first projection of an EMPTY config are equal, so the
@@ -223,6 +266,86 @@ class ConnectorViewModelTest {
                     assertEquals("", awaitItem().edgeHost)
                     configFlow.value = ENROLLED_CONFIG
                     assertEquals("devices.justceo.ai", awaitItem().edgeHost)
+                    cancelAndIgnoreRemainingEvents()
+                }
+            }
+    }
+
+    @Nested
+    @DisplayName("lifecycle control")
+    inner class LifecycleControl {
+        @Test
+        fun `start delegates to the shared ensure path`() =
+            runTest {
+                val viewModel = ConnectorViewModel(settingsRepository, connectorEnsure, MonotonicClock { NOW })
+
+                viewModel.start()
+                testDispatcher.scheduler.advanceUntilIdle()
+
+                coVerify(exactly = 1) { connectorEnsure.start() }
+            }
+
+        @Test
+        fun `stop delegates to the shared ensure path`() =
+            runTest {
+                val viewModel = ConnectorViewModel(settingsRepository, connectorEnsure, MonotonicClock { NOW })
+
+                viewModel.stop()
+                testDispatcher.scheduler.advanceUntilIdle()
+
+                coVerify(exactly = 1) { connectorEnsure.stop() }
+            }
+
+        @Test
+        fun `dismissing the keep-alive hint is remembered`() =
+            runTest {
+                val viewModel = ConnectorViewModel(settingsRepository, connectorEnsure, MonotonicClock { NOW })
+
+                viewModel.dismissKeepAliveHint()
+                testDispatcher.scheduler.advanceUntilIdle()
+
+                coVerify(exactly = 1) { settingsRepository.dismissConnectorKeepAliveHint() }
+            }
+    }
+
+    @Nested
+    @DisplayName("keepAliveHintVisible")
+    inner class KeepAliveHint {
+        @Test
+        fun `the hint appears once the device is enrolled`() =
+            runTest {
+                configFlow.value = ENROLLED_CONFIG
+                val viewModel = ConnectorViewModel(settingsRepository, connectorEnsure, MonotonicClock { NOW })
+
+                viewModel.keepAliveHintVisible.test {
+                    assertFalse(awaitItem()) // stateIn's seed
+                    assertTrue(awaitItem())
+                    cancelAndIgnoreRemainingEvents()
+                }
+            }
+
+        @Test
+        fun `an unenrolled device is not nagged about keeping a connector alive`() =
+            runTest {
+                val viewModel = ConnectorViewModel(settingsRepository, connectorEnsure, MonotonicClock { NOW })
+
+                viewModel.keepAliveHintVisible.test {
+                    assertFalse(awaitItem())
+                    expectNoEvents()
+                    cancelAndIgnoreRemainingEvents()
+                }
+            }
+
+        @Test
+        fun `a dismissed hint stays dismissed`() =
+            runTest {
+                configFlow.value = ENROLLED_CONFIG
+                hintDismissedFlow.value = true
+                val viewModel = ConnectorViewModel(settingsRepository, connectorEnsure, MonotonicClock { NOW })
+
+                viewModel.keepAliveHintVisible.test {
+                    assertFalse(awaitItem())
+                    expectNoEvents()
                     cancelAndIgnoreRemainingEvents()
                 }
             }

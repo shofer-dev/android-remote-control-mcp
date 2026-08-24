@@ -82,6 +82,28 @@ class ConnectorConfigTest {
         }
 
         @Test
+        fun `the explicit-stop veto survives the round trip`() {
+            // The whole point of the flag is that it outlives a process death and a reboot, which
+            // is exactly what persisting it as part of the connector config buys.
+            val config =
+                ConnectorConfig(
+                    edgeHost = "devices.justceo.ai",
+                    deviceId = "7f3ab21c-9d44",
+                    autoStart = true,
+                    stoppedByUser = true,
+                )
+
+            assertEquals(config, ConnectorConfig.fromJsonOrDefault(config.toJson()))
+        }
+
+        @Test
+        fun `a config persisted before the veto existed reads as not stopped`() {
+            val legacy = """{"edgeHost":"devices.justceo.ai","deviceId":"7f3ab21c","autoStart":true}"""
+
+            assertEquals(false, ConnectorConfig.fromJsonOrDefault(legacy).stoppedByUser)
+        }
+
+        @Test
         fun `unparseable persisted json falls back to the defaults`() {
             assertEquals(ConnectorConfig(), ConnectorConfig.fromJsonOrDefault("{not json"))
             assertEquals(ConnectorConfig(), ConnectorConfig.fromJsonOrDefault(null))

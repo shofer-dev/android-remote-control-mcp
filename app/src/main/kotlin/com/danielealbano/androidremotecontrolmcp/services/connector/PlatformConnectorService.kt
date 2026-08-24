@@ -75,7 +75,10 @@ class PlatformConnectorService : Service() {
         flags: Int,
         startId: Int,
     ): Int {
-        startForeground(NOTIFICATION_ID, buildNotification(ConnectorStatus.Connecting))
+        // The CURRENT status, not a hardcoded "Connecting…": a redundant start (an ensure path
+        // that raced the service's own liveness read) would otherwise re-label an attached
+        // connector as connecting until its next status emission.
+        startForeground(NOTIFICATION_ID, buildNotification(_status.value))
 
         when (intent?.action) {
             ACTION_STOP -> {
@@ -84,6 +87,8 @@ class PlatformConnectorService : Service() {
             }
 
             else -> {
+                serviceRunning.set(true)
+                ConnectorEnsure.cancelReviveNotification(this)
                 startConnector()
             }
         }
@@ -161,6 +166,7 @@ class PlatformConnectorService : Service() {
     override fun onDestroy() {
         Log.i(TAG, "PlatformConnectorService destroying")
         running.set(false)
+        serviceRunning.set(false)
         // Tear the transparency signals down BEFORE the scope dies, or the screen border
         // outlives the service that could remove it.
         activityIndicator.reset()
@@ -264,5 +270,18 @@ class PlatformConnectorService : Service() {
 
         /** Connector status for the UI; survives rebinding like [com.danielealbano.androidremotecontrolmcp.services.mcp.McpServerService.serverStatus]. */
         val status: StateFlow<ConnectorStatus> = _status.asStateFlow()
+
+        private val serviceRunning = AtomicBoolean(false)
+
+        /**
+         * Whether this service is currently alive, for the ensure paths ([ConnectorEnsure]).
+         *
+         * It is a process-scoped fact, and that is exactly right for the question being asked: if
+         * the process was killed too, this reads false on the next start, which is the case the
+         * revive paths exist for. It is deliberately NOT derived from [status] — a status is what
+         * the connector believes about the LINK, and a halted-but-running connector must not be
+         * "restarted" by a path that only meant to check whether the service exists.
+         */
+        val isRunning: Boolean get() = serviceRunning.get()
     }
 }

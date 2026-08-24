@@ -4,6 +4,7 @@ import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
 import com.danielealbano.androidremotecontrolmcp.data.model.ConnectorConfig
 import com.danielealbano.androidremotecontrolmcp.data.repository.SettingsRepository
+import com.danielealbano.androidremotecontrolmcp.services.connector.ConnectorEnsure
 import com.danielealbano.androidremotecontrolmcp.services.connector.ConnectorLiveness
 import com.danielealbano.androidremotecontrolmcp.services.connector.ConnectorStatus
 import com.danielealbano.androidremotecontrolmcp.services.connector.PlatformConnectorService
@@ -16,6 +17,7 @@ import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.combine
 import kotlinx.coroutines.flow.flow
 import kotlinx.coroutines.flow.stateIn
+import kotlinx.coroutines.launch
 import javax.inject.Inject
 
 /**
@@ -31,6 +33,9 @@ import javax.inject.Inject
  * [countdownMillis] is the remaining wait a waiting state carries — the backoff before the next
  * dial, or the closed active-hours window before it reopens — and is null for every state that
  * is not waiting on a deadline.
+ *
+ * [stoppedByUser] is the durable veto, and the card shows it because a device that is down on
+ * purpose looks identical to one that is down by accident unless something says so.
  */
 data class ConnectorUiState(
     val status: ConnectorStatus = ConnectorStatus.Stopped,
@@ -40,7 +45,16 @@ data class ConnectorUiState(
     val lastServerHeartbeatAgoMillis: Long? = null,
     val attachUptimeMillis: Long? = null,
     val countdownMillis: Long? = null,
-)
+    val stoppedByUser: Boolean = false,
+) {
+    /**
+     * Whether the connector service is up, which is what decides whether the card offers Start or
+     * Stop. [ConnectorStatus.Stopped] is published only by the service's `onDestroy` and as the
+     * flow's initial value, so it means precisely "no connector service in this process" — every
+     * other state, halted ones included, belongs to a service that is running.
+     */
+    val isRunning: Boolean get() = status !is ConnectorStatus.Stopped
+}
 
 /**
  * Feeds the connector status card.
@@ -55,7 +69,8 @@ data class ConnectorUiState(
 class ConnectorViewModel
     @Inject
     constructor(
-        settingsRepository: SettingsRepository,
+        private val settingsRepository: SettingsRepository,
+        private val connectorEnsure: ConnectorEnsure,
         private val clock: MonotonicClock,
     ) : ViewModel() {
         private val ticks: Flow<Long> =
@@ -74,6 +89,36 @@ class ConnectorViewModel
             ) { status, config, now ->
                 buildState(status, config, now)
             }.stateIn(viewModelScope, SharingStarted.WhileSubscribed(FLOW_TIMEOUT_MS), ConnectorUiState())
+
+        /**
+         * Whether to show the one-time "keep the connector alive" hint (OEM autostart and battery
+         * optimisation). Enrolment is the moment it becomes relevant — before that the device has
+         * no connector to keep alive — and dismissing it is remembered for good.
+         */
+        val keepAliveHintVisible: StateFlow<Boolean> =
+            combine(
+                settingsRepository.connectorConfig,
+                settingsRepository.connectorKeepAliveHintDismissed,
+            ) { config, dismissed ->
+                config.isEnrolled && !dismissed
+            }.stateIn(viewModelScope, SharingStarted.WhileSubscribed(FLOW_TIMEOUT_MS), false)
+
+        /** The card's Start control. The rules — clearing the stop veto, scheduling the watchdog,
+         * not re-starting a running service — live in [ConnectorEnsure], shared with the revive
+         * paths; this is only the intent. */
+        fun start() {
+            viewModelScope.launch { connectorEnsure.start() }
+        }
+
+        /** The card's Stop control: an explicit stop that the revive paths must respect. */
+        fun stop() {
+            viewModelScope.launch { connectorEnsure.stop() }
+        }
+
+        /** Remembers that the holder dismissed the keep-alive hint. */
+        fun dismissKeepAliveHint() {
+            viewModelScope.launch { settingsRepository.dismissConnectorKeepAliveHint() }
+        }
 
         companion object {
             private const val TICK_INTERVAL_MS = 1_000L
@@ -101,6 +146,7 @@ class ConnectorViewModel
                     lastServerHeartbeatAgoMillis = attached?.let { nowMillis - it.lastServerHeartbeatMillis },
                     attachUptimeMillis = attached?.let { nowMillis - it.attachedSinceMillis },
                     countdownMillis = countdown(grounded, nowMillis),
+                    stoppedByUser = config.stoppedByUser,
                 )
             }
 

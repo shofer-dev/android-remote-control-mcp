@@ -289,4 +289,20 @@ interface SettingsRepository {
 
     /** Updates the connector auto-start toggle. */
     suspend fun updateConnectorAutoStart(enabled: Boolean)
+
+    /**
+     * Records (or clears) an EXPLICIT stop. While set, no revive path — boot, the foreground
+     * hook or the watchdog — may start the connector; only an explicit start or a fresh enrolment
+     * clears it.
+     */
+    suspend fun updateConnectorStoppedByUser(stopped: Boolean)
+
+    /**
+     * Observes whether the holder has dismissed the one-time "keep the connector alive" hint
+     * (the OEM autostart / battery-optimisation card).
+     */
+    val connectorKeepAliveHintDismissed: Flow<Boolean>
+
+    /** Remembers that the holder dismissed the "keep the connector alive" hint. */
+    suspend fun dismissConnectorKeepAliveHint()
 }

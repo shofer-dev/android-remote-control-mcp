@@ -26,14 +26,17 @@ import androidx.compose.runtime.Composable
 import androidx.compose.runtime.getValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.unit.dp
 import androidx.hilt.navigation.compose.hiltViewModel
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import com.danielealbano.androidremotecontrolmcp.R
+import com.danielealbano.androidremotecontrolmcp.ui.components.ConnectorKeepAliveHintCard
 import com.danielealbano.androidremotecontrolmcp.ui.components.ConnectorStatusCard
 import com.danielealbano.androidremotecontrolmcp.ui.viewmodels.ConnectorViewModel
 import com.danielealbano.androidremotecontrolmcp.ui.viewmodels.MainViewModel
+import com.danielealbano.androidremotecontrolmcp.utils.OemKeepAliveSettings
 
 /**
  * The device's home screen. In platform mode the ONE thing it has to answer is whether the
@@ -51,6 +54,8 @@ fun ServerScreen(
     connectorViewModel: ConnectorViewModel = hiltViewModel(),
 ) {
     val connectorState by connectorViewModel.uiState.collectAsStateWithLifecycle()
+    val keepAliveHintVisible by connectorViewModel.keepAliveHintVisible.collectAsStateWithLifecycle()
+    val context = LocalContext.current
 
     val isAccessibilityEnabled by viewModel.isAccessibilityEnabled.collectAsStateWithLifecycle()
     val isNotificationPermissionGranted by viewModel.isNotificationPermissionGranted.collectAsStateWithLifecycle()
@@ -82,7 +87,20 @@ fun ServerScreen(
                 Spacer(Modifier.height(16.dp))
             }
 
-            ConnectorStatusCard(state = connectorState)
+            ConnectorStatusCard(
+                state = connectorState,
+                onStart = connectorViewModel::start,
+                onStop = connectorViewModel::stop,
+            )
+
+            if (keepAliveHintVisible) {
+                Spacer(Modifier.height(16.dp))
+                ConnectorKeepAliveHintCard(
+                    onOpenAutostart = { OemKeepAliveSettings.openAutostart(context) },
+                    onOpenBatterySettings = { OemKeepAliveSettings.openBatteryOptimization(context) },
+                    onDismiss = connectorViewModel::dismissKeepAliveHint,
+                )
+            }
         }
     }
 }

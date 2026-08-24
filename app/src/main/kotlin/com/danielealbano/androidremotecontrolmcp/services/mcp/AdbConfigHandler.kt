@@ -26,6 +26,12 @@ import com.danielealbano.androidremotecontrolmcp.services.storage.StorageLocatio
  * - `connector_auto_start` — persisted, AND when `true` the connector is STARTED in the same
  *   broadcast (a `PlatformConnectorService.ACTION_START`), since a configure that turns auto-start
  *   on is the supervisor's signal to bring the connector up now.
+ *
+ * `ADB_START_CONNECTOR` / `ADB_STOP_CONNECTOR` also move the durable
+ * [com.danielealbano.androidremotecontrolmcp.data.model.ConnectorConfig.stoppedByUser] veto, so a
+ * supervisor's stop is respected by the self-heal paths
+ * ([com.danielealbano.androidremotecontrolmcp.services.connector.ConnectorAutoStart]) rather than
+ * undone by them.
  */
 @Suppress("TooManyFunctions")
 class AdbConfigHandler(
@@ -109,11 +115,18 @@ class AdbConfigHandler(
         }
     }
 
-    private fun handleConnector(
+    /**
+     * Starts or stops the connector on the supervisor's behalf, and — because an adb start/stop is
+     * an EXPLICIT lifecycle decision, not a hint — records it durably. Without the flag a
+     * supervisor's stop would survive for at most fifteen minutes before the watchdog revived the
+     * connector it had just been told to shut down.
+     */
+    private suspend fun handleConnector(
         context: Context,
         action: String,
     ) {
         Log.i(TAG, "Received ADB connector broadcast: $action")
+        settingsRepository.updateConnectorStoppedByUser(action == PlatformConnectorService.ACTION_STOP)
         val serviceIntent =
             Intent(context, PlatformConnectorService::class.java).apply { this.action = action }
         context.startForegroundService(serviceIntent)

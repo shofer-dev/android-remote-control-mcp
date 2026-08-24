@@ -10,14 +10,17 @@ import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
+import androidx.compose.foundation.layout.defaultMinSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
+import androidx.compose.material3.Button
 import androidx.compose.material3.ElevatedCard
 import androidx.compose.material3.HorizontalDivider
 import androidx.compose.material3.MaterialTheme
+import androidx.compose.material3.OutlinedButton
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.getValue
@@ -39,6 +42,9 @@ import com.danielealbano.androidremotecontrolmcp.utils.DurationFormat
 private const val STATUS_DOT_SIZE_DP = 12
 private const val ANIMATION_DURATION_MS = 300
 
+/** Material's minimum touch target; Material 3 buttons default to 40dp, which is below it. */
+private const val MIN_TOUCH_TARGET_DP = 48
+
 /**
  * The device's attachment to the platform, as the PLATFORM sees it.
  *
@@ -47,10 +53,18 @@ private const val ANIMATION_DURATION_MS = 300
  * The heartbeat row underneath is what makes that claim checkable by eye: it is the age of the
  * last answer the platform gave, ticking, and it keeps ticking while the state reads
  * "Reconnecting" so the holder can see how long the silence has lasted.
+ *
+ * The card also CONTROLS the connector, because a status card that can only report "Stopped" on a
+ * phone whose OEM just killed the service leaves the holder with nothing to do but reboot. Stop is
+ * an explicit veto the self-heal paths respect
+ * ([com.danielealbano.androidremotecontrolmcp.services.connector.ConnectorAutoStart]), so the card
+ * says so underneath rather than leaving a deliberate stop looking like a failure.
  */
 @Composable
 fun ConnectorStatusCard(
     state: ConnectorUiState,
+    onStart: () -> Unit,
+    onStop: () -> Unit,
     modifier: Modifier = Modifier,
 ) {
     ElevatedCard(modifier = modifier.fillMaxWidth()) {
@@ -95,6 +109,46 @@ fun ConnectorStatusCard(
                     state.attachUptimeMillis?.let { DurationFormat.short(it) }
                         ?: stringResource(R.string.connector_card_unknown),
             )
+
+            if (state.stoppedByUser && !state.isRunning) {
+                Spacer(Modifier.height(12.dp))
+                Text(
+                    text = stringResource(R.string.connector_card_stopped_by_user),
+                    style = MaterialTheme.typography.bodySmall,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                )
+            }
+
+            Spacer(Modifier.height(12.dp))
+            LifecycleControl(isRunning = state.isRunning, onStart = onStart, onStop = onStop)
+        }
+    }
+}
+
+/**
+ * The one control the card offers, in whichever direction is currently meaningful. A filled
+ * button for Start (the action a holder looking at a dead connector wants) and an outlined one
+ * for Stop (deliberate, not routine).
+ */
+@Composable
+private fun LifecycleControl(
+    isRunning: Boolean,
+    onStart: () -> Unit,
+    onStop: () -> Unit,
+) {
+    Row(
+        modifier = Modifier.fillMaxWidth(),
+        horizontalArrangement = Arrangement.End,
+    ) {
+        val buttonModifier = Modifier.defaultMinSize(minHeight = MIN_TOUCH_TARGET_DP.dp)
+        if (isRunning) {
+            OutlinedButton(onClick = onStop, modifier = buttonModifier) {
+                Text(stringResource(R.string.connector_card_stop))
+            }
+        } else {
+            Button(onClick = onStart, modifier = buttonModifier) {
+                Text(stringResource(R.string.connector_card_start))
+            }
         }
     }
 }
@@ -201,6 +255,27 @@ private fun ConnectorStatusCardConnectedPreview() {
                     lastServerHeartbeatAgoMillis = 3_000,
                     attachUptimeMillis = 3_725_000,
                 ),
+            onStart = {},
+            onStop = {},
+        )
+    }
+}
+
+@Preview(showBackground = true)
+@Composable
+private fun ConnectorStatusCardStoppedByUserPreview() {
+    AndroidRemoteControlMcpTheme {
+        ConnectorStatusCard(
+            state =
+                ConnectorUiState(
+                    status = ConnectorStatus.Stopped,
+                    deviceIdShort = "7f3ab21c",
+                    edgeHost = "devices.justceo.ai",
+                    isEnrolled = true,
+                    stoppedByUser = true,
+                ),
+            onStart = {},
+            onStop = {},
         )
     }
 }
@@ -215,6 +290,8 @@ private fun ConnectorStatusCardHaltedPreview() {
                     status = ConnectorStatus.EnrolmentRejected(details = null),
                     edgeHost = "devices.justceo.ai",
                 ),
+            onStart = {},
+            onStop = {},
         )
     }
 }

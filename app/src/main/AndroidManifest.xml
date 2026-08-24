@@ -45,6 +45,16 @@
     <uses-feature android:name="android.hardware.microphone" android:required="false" />
     <uses-feature android:name="android.hardware.location.gps" android:required="false" />
 
+    <!--
+      Package visibility (API 30+) for the ONE vendor screen the keep-alive hint links to:
+      MIUI/HyperOS's Autostart manager. Without this entry the component is invisible to us and
+      the launch fails as "not found" even on a phone that has it. Nothing else is queried — the
+      hint's other two destinations are platform Settings actions, which need no declaration.
+    -->
+    <queries>
+        <package android:name="com.miui.securitycenter" />
+    </queries>
+
     <application
         android:name=".McpApplication"
         android:allowBackup="true"

@@ -33,6 +33,16 @@
     <string name="connector_card_unknown">—</string>
     <string name="connector_card_ago">%1$s ago</string>
     <string name="connector_card_retry_in">Next attempt in %1$s</string>
+    <string name="connector_card_start">Start</string>
+    <string name="connector_card_stop">Stop</string>
+    <string name="connector_card_stopped_by_user">You stopped the connector. It will stay stopped — including after a restart — until you start it again.</string>
+    <string name="notification_connector_revive_title">Platform Connector stopped</string>
+    <string name="notification_connector_revive_text">This device is no longer attached to JustCEO. Tap to reconnect it.</string>
+    <string name="connector_keepalive_title">Keep the connector running</string>
+    <string name="connector_keepalive_body">Some phones stop background apps to save power, which detaches this device without warning. Two settings prevent it: allow this app to start on its own, and exclude it from battery optimisation.</string>
+    <string name="connector_keepalive_autostart">Autostart settings</string>
+    <string name="connector_keepalive_battery">Battery settings</string>
+    <string name="connector_keepalive_dismiss">Dismiss</string>
     <string name="connector_terms_title">Enrolment Terms</string>
     <string name="connector_terms_accept">Accept</string>
     <string name="connector_terms_decline">Decline</string>

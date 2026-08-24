@@ -565,11 +565,26 @@ class SettingsRepositoryImpl
             // The pairing code is single-use and spent by a successful enrolment — clear it so a
             // reconnect attaches with the durable device id rather than re-redeeming (which the
             // platform would refuse as code-unusable).
-            updateConnectorConfig { it.copy(deviceId = deviceId, enrolmentCode = "") }
+            //
+            // A fresh enrolment also clears an earlier explicit stop: the device has just been
+            // paired to a platform, which is a stronger statement of intent than whatever the
+            // previous holder decided about the previous pairing.
+            updateConnectorConfig { it.copy(deviceId = deviceId, enrolmentCode = "", stoppedByUser = false) }
         }
 
         override suspend fun updateConnectorAutoStart(enabled: Boolean) {
             updateConnectorConfig { it.copy(autoStart = enabled) }
+        }
+
+        override suspend fun updateConnectorStoppedByUser(stopped: Boolean) {
+            updateConnectorConfig { it.copy(stoppedByUser = stopped) }
+        }
+
+        override val connectorKeepAliveHintDismissed: Flow<Boolean> =
+            dataStore.data.map { prefs -> prefs[CONNECTOR_KEEP_ALIVE_HINT_KEY] ?: false }
+
+        override suspend fun dismissConnectorKeepAliveHint() {
+            dataStore.edit { prefs -> prefs[CONNECTOR_KEEP_ALIVE_HINT_KEY] = true }
         }
 
         companion object {
@@ -593,5 +608,6 @@ class SettingsRepositoryImpl
             private val BUILTIN_LOCATION_PERMISSIONS_KEY = stringPreferencesKey("builtin_location_permissions")
             private val EVENT_CHANNEL_CONFIG_KEY = stringPreferencesKey("event_channel_config")
             private val CONNECTOR_CONFIG_KEY = stringPreferencesKey("connector_config")
+            private val CONNECTOR_KEEP_ALIVE_HINT_KEY = booleanPreferencesKey("connector_keep_alive_hint_dismissed")
         }
     }
