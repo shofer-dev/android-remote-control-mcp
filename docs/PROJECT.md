@@ -207,7 +207,7 @@ The MCP server exposes 56 tools across 13 categories. For full JSON-RPC schemas,
 
 | Tool | Description | Parameters | Output |
 |------|-------------|------------|--------|
-| `android_get_screen_state` | Returns consolidated screen state: app info, screen dimensions, and a compact filtered flat TSV list of UI nodes | `include_screenshot` (boolean, optional, default false) | `TextContent` with compact TSV (text/desc truncated to 100 chars, comma-separated abbreviated flags with on/off visibility). Optionally includes `ImageContent` with annotated low-resolution JPEG screenshot (700px max, red bounding boxes with node ID labels). |
+| `android_get_screen_state` | Returns consolidated screen state: app info, screen dimensions, and a compact filtered flat TSV list of UI nodes | `include_screenshot` (boolean, optional, default false), `annotate_elements` (boolean, optional, default true) | `TextContent` with compact TSV (text/desc truncated to 100 chars, comma-separated abbreviated flags with on/off visibility). Optionally includes `ImageContent` with a low-resolution JPEG screenshot (700px max) — annotated with red bounding boxes and node ID labels by default, or CLEAN when `annotate_elements=false` (what a human viewer gets; node ids stay in the TSV). |
 
 **Error**: Returns `CallToolResult(isError = true)` if accessibility permission not granted or screen capture not available.
 

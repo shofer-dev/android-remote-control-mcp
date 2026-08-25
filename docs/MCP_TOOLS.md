@@ -193,6 +193,11 @@ Replaces the previous `get_accessibility_tree`, `capture_screenshot`, `get_curre
       "type": "boolean",
       "description": "Include a low-resolution screenshot. Only request when the UI node list is not sufficient.",
       "default": false
+    },
+    "annotate_elements": {
+      "type": "boolean",
+      "description": "Draw numbered bounding boxes over the screenshot so elements can be referenced visually. Set false for a clean screenshot of the screen as a person sees it; node ids in the text output are unaffected.",
+      "default": true
     }
   },
   "required": []
@@ -324,13 +329,23 @@ Both `text` and `desc` columns are truncated to **100 characters**. If truncated
 
 #### Screenshot
 
-When `include_screenshot` is `true`, a low-resolution annotated JPEG screenshot (max 700px in either dimension, quality 80) is included as a second content item (`ImageContent`). The screenshot is annotated with:
+When `include_screenshot` is `true`, a low-resolution JPEG screenshot (max 700px in either dimension, quality 80) is included as a second content item (`ImageContent`).
+
+By default (`annotate_elements` omitted or `true`) it is annotated for a vision model with:
 - **Red dashed bounding boxes** (2px) around each on-screen node that appears in the TSV
 - **Semi-transparent red pill labels** with white bold text showing the node ID hash (e.g., `a3f2` for `node_a3f2`) at the top-left of each bounding box
 
 Off-screen nodes (marked with `off` flag in the TSV) do not have bounding boxes on the screenshot. Use the `scroll_to_node` tool to bring them into view first.
 
 Only request the screenshot when the node list alone is not sufficient to understand the screen layout.
+
+**`annotate_elements: false` returns the screen as a PERSON sees it** — no boxes, no id labels — for a
+human viewer such as the console's device screenshot and its drive frames. The annotator is skipped
+entirely rather than drawn and discarded, so it is also the cheaper path. Node ids live in the TSV
+either way, so an agent's element addressing is unaffected by a clean image.
+
+The default is `true` so that an existing vision caller keeps the exact pixels it was built
+against; a human viewer opts out explicitly.
 
 **Error Cases** (returned as `CallToolResult(isError = true)`):
 - **Permission denied**: Accessibility service not enabled or not ready

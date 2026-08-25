@@ -67,6 +67,7 @@ class GetScreenStateHandler
 
         suspend fun execute(arguments: JsonObject?): CallToolResult {
             val includeScreenshot = parseIncludeScreenshot(arguments)
+            val annotateElements = parseAnnotateElements(arguments)
             val cursorElement = arguments?.get("cursor")
             // Absent, JSON null, or a blank string ⇒ fresh cursorless capture (settled behavior 1).
             // A present, non-blank value (INCLUDING a non-primitive object/array) ⇒ paged path,
@@ -76,7 +77,7 @@ class GetScreenStateHandler
                     cursorElement is JsonNull ||
                     ((cursorElement as? JsonPrimitive)?.contentOrNull?.isBlank() == true)
             return if (isFresh) {
-                handleFreshRequest(includeScreenshot)
+                handleFreshRequest(includeScreenshot, annotateElements)
             } else {
                 McpToolUtils.untrustedTextResult(buildPagedText(cursorElement, includeScreenshot))
             }
@@ -89,7 +90,23 @@ class GetScreenStateHandler
                 false
             }
 
-        private suspend fun handleFreshRequest(includeScreenshot: Boolean): CallToolResult {
+        /**
+         * Whether to draw the Set-of-Mark node boxes on the returned screenshot.
+         *
+         * DEFAULTS TO TRUE, and that is the whole compatibility story: the annotations exist for a
+         * vision model that has to point at an element by id, so every existing agent caller keeps
+         * the pixels it was built against without changing a line. A HUMAN viewer — the console's
+         * screenshot and its drive frames — passes `false` and gets the screen as a person would
+         * see it. The node ids in the accompanying TEXT are unaffected either way, so the agent's
+         * addressing survives even when the image is clean.
+         */
+        private fun parseAnnotateElements(arguments: JsonObject?): Boolean =
+            arguments?.get("annotate_elements")?.jsonPrimitive?.booleanOrNull ?: true
+
+        private suspend fun handleFreshRequest(
+            includeScreenshot: Boolean,
+            annotateElements: Boolean,
+        ): CallToolResult {
             // getFreshWindows clears the framework accessibility cache before reading (see there),
             // so this fresh capture — and the node cache it populates for element/action tools —
             // round-trips live even for stale-prone WebView content.
@@ -101,9 +118,12 @@ class GetScreenStateHandler
             val totalKept = compactTreeFormatter.countKeptNodes(result)
             val totalPages = ceilDiv(totalKept, CompactTreeFormatter.PAGE_SIZE)
             val compactOutput = buildFreshPageText(result, screenInfo, totalKept, totalPages)
-            Log.d(TAG, "get_screen_state: includeScreenshot=$includeScreenshot pages=$totalPages")
+            Log.d(
+                TAG,
+                "get_screen_state: includeScreenshot=$includeScreenshot annotate=$annotateElements pages=$totalPages",
+            )
             return if (includeScreenshot) {
-                buildScreenshotResult(result, screenInfo, compactOutput)
+                buildScreenshotResult(result, screenInfo, compactOutput, annotateElements)
             } else {
                 McpToolUtils.untrustedTextResult(compactOutput)
             }
@@ -173,6 +193,7 @@ class GetScreenStateHandler
             result: MultiWindowResult,
             screenInfo: ScreenInfo,
             compactOutput: String,
+            annotateElements: Boolean,
         ): CallToolResult {
             if (!screenCaptureProvider.isScreenCaptureAvailable()) {
                 throw McpToolException.PermissionDenied(
@@ -196,22 +217,26 @@ class GetScreenStateHandler
 
             var annotatedBitmap: Bitmap? = null
             try {
-                // Collect on-screen elements from ALL windows' trees
-                val onScreenElements = collectOnScreenElements(result.windows)
+                // A clean capture skips the annotator ENTIRELY rather than drawing and discarding:
+                // annotate() allocates a full mutable ARGB_8888 copy of the bitmap, so not calling
+                // it is also the cheaper path for the viewer that asks for it most often.
+                val bitmapToEncode =
+                    if (annotateElements) {
+                        val onScreenElements = collectOnScreenElements(result.windows)
+                        screenshotAnnotator
+                            .annotate(
+                                resizedBitmap,
+                                onScreenElements,
+                                screenInfo.width,
+                                screenInfo.height,
+                            ).also { annotatedBitmap = it }
+                    } else {
+                        resizedBitmap
+                    }
 
-                // Annotate the screenshot with bounding boxes
-                annotatedBitmap =
-                    screenshotAnnotator.annotate(
-                        resizedBitmap,
-                        onScreenElements,
-                        screenInfo.width,
-                        screenInfo.height,
-                    )
-
-                // Encode annotated bitmap to base64 JPEG
                 val screenshotData =
                     screenshotEncoder.bitmapToScreenshotData(
-                        annotatedBitmap,
+                        bitmapToEncode,
                         ScreenCaptureProvider.DEFAULT_QUALITY,
                     )
 
@@ -289,6 +314,17 @@ class GetScreenStateHandler
                                                 "Only request when the UI node list is not sufficient.",
                                         )
                                         put("default", false)
+                                    }
+                                    putJsonObject("annotate_elements") {
+                                        put("type", "boolean")
+                                        put(
+                                            "description",
+                                            "Draw numbered bounding boxes over the screenshot so " +
+                                                "elements can be referenced visually. Set false for a " +
+                                                "clean screenshot of the screen as a person sees it; " +
+                                                "node ids in the text output are unaffected.",
+                                        )
+                                        put("default", true)
                                     }
                                 }
                                 putJsonObject("cursor") {

@@ -121,6 +121,25 @@ class ScreenIntrospectionToolsTest {
             "node_btn\tButton\tOK\t-\t-\t100,200,300,260\ton,clk,ena\n" +
             "hierarchy:\nnode_btn"
 
+    /** The capture the provider hands back, so a test can assert WHICH bitmap was encoded. */
+    private val rawCapture = mockk<Bitmap>(relaxed = true)
+
+    /** Stubs the capture/annotate/encode chain; returns the bitmap the annotator produces. */
+    private fun screenshotStubs(): Bitmap {
+        val annotated = mockk<Bitmap>(relaxed = true)
+        every { mockScreenCaptureProvider.isScreenCaptureAvailable() } returns true
+        coEvery {
+            mockScreenCaptureProvider.captureScreenshotBitmap(any(), any())
+        } returns Result.success(rawCapture)
+        every {
+            mockScreenshotAnnotator.annotate(any(), any(), any(), any())
+        } returns annotated
+        every {
+            mockScreenshotEncoder.bitmapToScreenshotData(any(), any())
+        } returns ScreenshotData(data = "base64data", width = 700, height = 500)
+        return annotated
+    }
+
     @Suppress("LongMethod")
     private fun setupReadyService() {
         every { mockAccessibilityServiceProvider.isReady() } returns true
@@ -243,6 +262,100 @@ class ScreenIntrospectionToolsTest {
                 val imageContent = result.content[1] as ImageContent
                 assertEquals("base64data", imageContent.data)
                 assertEquals("image/jpeg", imageContent.mimeType)
+            }
+
+        @Test
+        @DisplayName("annotates by default, so an agent caller keeps its Set-of-Mark boxes")
+        fun annotatesByDefault() =
+            runTest {
+                setupReadyService()
+                val mockAnnotatedBitmap = screenshotStubs()
+
+                handler.execute(buildJsonObject { put("include_screenshot", true) })
+
+                verify(exactly = 1) { mockScreenshotAnnotator.annotate(any(), any(), any(), any()) }
+                verify(exactly = 1) {
+                    mockScreenshotEncoder.bitmapToScreenshotData(mockAnnotatedBitmap, any())
+                }
+            }
+
+        @Test
+        @DisplayName("annotate_elements=false encodes the RAW capture — no boxes, no node ids")
+        fun annotateElementsFalseEncodesRawCapture() =
+            runTest {
+                // What a human sees in the console. The annotator must not merely be drawn and
+                // discarded: the encoded bitmap has to be the untouched capture.
+                setupReadyService()
+                screenshotStubs()
+
+                val result =
+                    handler.execute(
+                        buildJsonObject {
+                            put("include_screenshot", true)
+                            put("annotate_elements", false)
+                        },
+                    )
+
+                verify(exactly = 0) { mockScreenshotAnnotator.annotate(any(), any(), any(), any()) }
+                verify(exactly = 1) { mockScreenshotEncoder.bitmapToScreenshotData(rawCapture, any()) }
+                assertEquals("base64data", (result.content[1] as ImageContent).data)
+            }
+
+        @Test
+        @DisplayName("annotate_elements=true is honoured explicitly")
+        fun annotateElementsTrueIsHonoured() =
+            runTest {
+                setupReadyService()
+                val mockAnnotatedBitmap = screenshotStubs()
+
+                handler.execute(
+                    buildJsonObject {
+                        put("include_screenshot", true)
+                        put("annotate_elements", true)
+                    },
+                )
+
+                verify(exactly = 1) {
+                    mockScreenshotEncoder.bitmapToScreenshotData(mockAnnotatedBitmap, any())
+                }
+            }
+
+        @Test
+        @DisplayName("a clean screenshot still carries the node ids in the TEXT")
+        fun cleanScreenshotKeepsNodeIdsInText() =
+            runTest {
+                // The agent's addressing must survive a clean image: ids live in the tree text,
+                // never only in the drawn labels.
+                setupReadyService()
+                screenshotStubs()
+
+                val result =
+                    handler.execute(
+                        buildJsonObject {
+                            put("include_screenshot", true)
+                            put("annotate_elements", false)
+                        },
+                    )
+
+                val text = stripUntrustedWarning((result.content[0] as TextContent).text)
+                assertTrue(text.contains("node_btn"))
+            }
+
+        @Test
+        @DisplayName("annotate_elements is ignored when no screenshot was asked for")
+        fun annotateElementsIgnoredWithoutScreenshot() =
+            runTest {
+                setupReadyService()
+
+                val result =
+                    handler.execute(
+                        buildJsonObject {
+                            put("annotate_elements", false)
+                        },
+                    )
+
+                assertEquals(1, result.content.size)
+                verify(exactly = 0) { mockScreenshotAnnotator.annotate(any(), any(), any(), any()) }
             }
 
         @Test
