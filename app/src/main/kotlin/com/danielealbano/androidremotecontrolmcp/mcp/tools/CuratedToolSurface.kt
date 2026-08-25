@@ -41,6 +41,14 @@ object CuratedToolSurface {
     /** §4 `android_read_notifications`. */
     const val NOTIFICATION_LIST = "notification_list"
 
+    /**
+     * `android_get_sim_info` — reads the tethered SIM's own number/ICCID/carrier for
+     * provenance-verifying an MSISDN without SMS (docs/phones/android_remote_control.md §4). READ:
+     * it is device-identity perception, and the host's `read_sim_number` action consumes it. It
+     * needs `READ_PHONE_NUMBERS`, granted by the provisioning path like the other grants.
+     */
+    const val GET_SIM_INFO = "get_sim_info"
+
     // ── WRITE (acting) ─────────────────────────────────────────────────────────────────────
 
     /** §4 `android_tap_node`. */
@@ -83,6 +91,7 @@ object CuratedToolSurface {
             FIND_NODES to ToolGroup.READ,
             LIST_APPS to ToolGroup.READ,
             NOTIFICATION_LIST to ToolGroup.READ,
+            GET_SIM_INFO to ToolGroup.READ,
             TAP_NODE to ToolGroup.WRITE,
             TAP to ToolGroup.WRITE,
             LONG_PRESS to ToolGroup.WRITE,

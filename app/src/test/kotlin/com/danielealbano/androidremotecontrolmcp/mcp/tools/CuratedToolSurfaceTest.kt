@@ -19,6 +19,7 @@ class CuratedToolSurfaceTest {
             "find_nodes",
             "list_apps",
             "notification_list",
+            "get_sim_info",
             "tap_node",
             "tap",
             "long_press",
@@ -71,7 +72,7 @@ class CuratedToolSurfaceTest {
 
     @Test
     fun `read and write groups match the section 4 table`() {
-        val reads = setOf("get_screen_state", "find_nodes", "list_apps", "notification_list")
+        val reads = setOf("get_screen_state", "find_nodes", "list_apps", "notification_list", "get_sim_info")
         reads.forEach { assertEquals(CuratedToolSurface.ToolGroup.READ, CuratedToolSurface.groupOf(it), it) }
         (expectedCurated - reads).forEach {
             assertEquals(CuratedToolSurface.ToolGroup.WRITE, CuratedToolSurface.groupOf(it), it)

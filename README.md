@@ -340,6 +340,10 @@ adb shell pm grant <app-id> android.permission.ACCESS_BACKGROUND_LOCATION
 # Grant nearby WiFi devices permission (Android 13+)
 adb shell pm grant <app-id> android.permission.NEARBY_WIFI_DEVICES
 
+# Grant phone-number read (tethered-SIM MSISDN via android_get_sim_info)
+adb shell pm grant <app-id> android.permission.READ_PHONE_NUMBERS
+adb shell pm grant <app-id> android.permission.READ_PHONE_STATE
+
 # Grant media read permissions (Android 13+)
 adb shell pm grant <app-id> android.permission.READ_MEDIA_IMAGES
 adb shell pm grant <app-id> android.permission.READ_MEDIA_VIDEO

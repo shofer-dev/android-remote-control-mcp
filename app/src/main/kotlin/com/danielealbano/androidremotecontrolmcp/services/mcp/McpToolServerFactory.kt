@@ -13,6 +13,7 @@ import com.danielealbano.androidremotecontrolmcp.mcp.tools.registerLocationTools
 import com.danielealbano.androidremotecontrolmcp.mcp.tools.registerNodeActionTools
 import com.danielealbano.androidremotecontrolmcp.mcp.tools.registerNotificationTools
 import com.danielealbano.androidremotecontrolmcp.mcp.tools.registerScreenIntrospectionTools
+import com.danielealbano.androidremotecontrolmcp.mcp.tools.registerSimInfoTools
 import com.danielealbano.androidremotecontrolmcp.mcp.tools.registerSystemActionTools
 import com.danielealbano.androidremotecontrolmcp.mcp.tools.registerTextInputTools
 import com.danielealbano.androidremotecontrolmcp.mcp.tools.registerTouchActionTools
@@ -34,6 +35,7 @@ import com.danielealbano.androidremotecontrolmcp.services.notifications.Notifica
 import com.danielealbano.androidremotecontrolmcp.services.screencapture.ScreenCaptureProvider
 import com.danielealbano.androidremotecontrolmcp.services.screencapture.ScreenshotAnnotator
 import com.danielealbano.androidremotecontrolmcp.services.screencapture.ScreenshotEncoder
+import com.danielealbano.androidremotecontrolmcp.services.sim.SimInfoReader
 import com.danielealbano.androidremotecontrolmcp.services.storage.FileOperationProvider
 import com.danielealbano.androidremotecontrolmcp.services.storage.StorageLocationProvider
 import io.modelcontextprotocol.kotlin.sdk.server.Server
@@ -82,6 +84,7 @@ class McpToolServerFactory
         private val intentDispatcher: IntentDispatcher,
         private val notificationProvider: NotificationProvider,
         private val locationProvider: LocationProvider,
+        private val simInfoReader: SimInfoReader,
     ) {
         /**
          * Builds a registered [Server] for the given [config], curated to the §4 tool surface.
@@ -169,5 +172,6 @@ class McpToolServerFactory
             registerIntentTools(server, intentDispatcher, toolNamePrefix, perms)
             registerNotificationTools(server, notificationProvider, toolNamePrefix, perms)
             registerLocationTools(server, locationProvider, toolNamePrefix, perms)
+            registerSimInfoTools(server, simInfoReader, toolNamePrefix, perms)
         }
     }

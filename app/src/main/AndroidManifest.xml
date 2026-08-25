@@ -36,6 +36,18 @@
     <!-- Foreground service type for Event Channel (location for geofence/WiFi) -->
     <uses-permission android:name="android.permission.FOREGROUND_SERVICE_LOCATION" />
 
+    <!-- Tethered-SIM MSISDN provenance (android_get_sim_info via SubscriptionManager). TWO runtime
+         permissions, and both matter:
+           READ_PHONE_NUMBERS — reads the number itself (SubscriptionManager.getPhoneNumber).
+           READ_PHONE_STATE   — ENUMERATES the active subscriptions (getActiveSubscriptionInfoList),
+                                which the multi-SIM "return all active subs" requirement needs.
+         BOTH are protectionLevel=dangerous and grantable via `pm grant` on a RETAIL (user) build,
+         exactly like the accessibility/DUMP grants the provisioning path already issues. Neither is
+         the privileged READ_PRIVILEGED_PHONE_STATE — that one the adb shell cannot grant on a user
+         build, which is why the adb `content query .../siminfo` rung fails and this app verb exists. -->
+    <uses-permission android:name="android.permission.READ_PHONE_NUMBERS" />
+    <uses-permission android:name="android.permission.READ_PHONE_STATE" />
+
     <!-- Media read access (optional — enables "all files" mode for built-in storage locations) -->
     <uses-permission android:name="android.permission.READ_MEDIA_IMAGES" />
     <uses-permission android:name="android.permission.READ_MEDIA_VIDEO" />

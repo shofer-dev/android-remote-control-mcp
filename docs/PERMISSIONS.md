@@ -39,6 +39,12 @@ adb shell pm grant <app-id> android.permission.ACCESS_BACKGROUND_LOCATION
 # Nearby WiFi devices (Android 13+)
 adb shell pm grant <app-id> android.permission.NEARBY_WIFI_DEVICES
 
+# Phone number — the tethered SIM's own MSISDN via android_get_sim_info (SubscriptionManager).
+# READ_PHONE_NUMBERS reads the number; READ_PHONE_STATE enumerates active SIMs (multi-SIM).
+# BOTH are dangerous runtime permissions — pm grant-able on a user build — NOT the privileged READ_PRIVILEGED_PHONE_STATE.
+adb shell pm grant <app-id> android.permission.READ_PHONE_NUMBERS
+adb shell pm grant <app-id> android.permission.READ_PHONE_STATE
+
 # Media read access (Android 13+) — enables "all files" mode for built-in storage locations
 adb shell pm grant <app-id> android.permission.READ_MEDIA_IMAGES
 adb shell pm grant <app-id> android.permission.READ_MEDIA_VIDEO
