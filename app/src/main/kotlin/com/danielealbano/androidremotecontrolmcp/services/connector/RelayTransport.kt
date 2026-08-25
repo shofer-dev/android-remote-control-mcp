@@ -50,7 +50,8 @@ import kotlinx.serialization.json.jsonObject
  */
 class RelayTransport(
     @Volatile private var outbound: suspend (Frame) -> Unit,
-) : AbstractTransport() {
+) : AbstractTransport(),
+    RelayCommandSink {
     private val lock = Any()
 
     /** jsonrpc-id → the relay exchange that carried the request, awaiting its response. */
@@ -79,7 +80,7 @@ class RelayTransport(
      * Routes an inbound relay `cmd` into the MCP session, or serves it from the replay cache
      * if it is a redelivery of an already-completed exchange.
      */
-    suspend fun dispatchCommand(frame: Frame) {
+    override suspend fun dispatchCommand(frame: Frame) {
         val relayId = frame.id
         if (relayId == null) {
             Log.w(TAG, "cmd without id; dropping")
@@ -123,7 +124,7 @@ class RelayTransport(
         val onMessage: (suspend (JSONRPCMessage) -> Unit)? = _onMessage
         if (onMessage == null) {
             Log.w(TAG, "MCP session not connected yet; cannot dispatch cmd $relayId")
-            completeExchange(exchange, Frame(type = FrameType.REPLY, id = relayId, error = "not-ready"))
+            completeExchange(exchange, Frame(type = FrameType.REPLY, id = relayId, error = RelayCommandServer.NOT_READY))
             return
         }
 
@@ -164,6 +165,10 @@ class RelayTransport(
         reply: Frame,
     ) {
         synchronized(lock) { replyCache[exchange.dedupeKey] = reply }
+        // The other half of RelayCommandServer's arrival line: every exchange that started is
+        // seen to finish, with its error code when it carries one. Without this a reply that was
+        // produced but never written looked exactly like one that was never produced.
+        Log.i(TAG, "reply for cmd ${exchange.relayId}${reply.error?.let { " error=$it" } ?: ""}")
         outbound(reply)
     }
 

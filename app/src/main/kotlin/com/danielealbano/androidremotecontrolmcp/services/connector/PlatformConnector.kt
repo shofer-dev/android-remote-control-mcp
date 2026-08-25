@@ -422,34 +422,19 @@ class PlatformConnector(
     }
 
     /**
-     * Serves one relayed `cmd`: evaluate the platform's policy FIRST, and only then hand the
-     * payload to the loopback MCP hop. A refusal is written straight back as a `reply` frame
-     * carrying the typed code, so the caller learns why rather than timing out, and the MCP
-     * session never sees the request at all.
+     * Serves one relayed `cmd`. The rule — policy first, then the loopback MCP hop, and always
+     * exactly one reply — lives in [RelayCommandServer], which is testable without a socket.
+     * `sink` reads [transport] lazily because the session is built on the first pass of [run],
+     * after this object is constructed.
      */
-    private suspend fun serveCommand(frame: Frame) {
-        when (val decision = policyEnforcer.evaluate(frame.payload)) {
-            is PolicyDecision.Refused -> {
-                send(
-                    Frame(
-                        type = FrameType.REPLY,
-                        id = frame.id,
-                        error = decision.error,
-                        details = decision.details,
-                    ),
-                )
-            }
-
-            PolicyDecision.Allowed -> {
-                activityIndicator.onCommandStarted()
-                try {
-                    transport?.dispatchCommand(frame)
-                } finally {
-                    activityIndicator.onCommandFinished()
-                }
-            }
-        }
-    }
+    private val commandServer =
+        RelayCommandServer(
+            evaluatePolicy = policyEnforcer::evaluate,
+            onCommandStarted = activityIndicator::onCommandStarted,
+            onCommandFinished = activityIndicator::onCommandFinished,
+            sink = { transport },
+            send = { frame -> send(frame) },
+        )
 
     // ─────────────────────────────── handshake state machine ──────────────────────────────
 
@@ -521,7 +506,7 @@ class PlatformConnector(
                 }
 
                 FrameType.CMD -> {
-                    scope.launch { serveCommand(frame) }
+                    scope.launch { commandServer.serve(frame) }
                     null
                 }
 

@@ -44,12 +44,19 @@ class ConnectorWatchdogWorker(
         val entryPoint =
             EntryPointAccessors
                 .fromApplication(applicationContext, WatchdogEntryPoint::class.java)
-        // The audit runs on the same tick, and this is its ONLY background surface: a holder who
-        // never opens the app would otherwise never learn that a system update switched
-        // accessibility off and left the device attached but unable to do anything.
-        val audit = entryPoint.permissionAuditor().refresh()
+
+        // ORDER AND ISOLATION ARE BOTH LOAD-BEARING. The revive is the reason this worker exists,
+        // so it runs FIRST and its failure is the only one allowed to end the tick. The audit is a
+        // REPORT — it reads Settings.Secure, DevicePolicyManager and PowerManager, any of which a
+        // vendor build can make throw — and a report that cannot be produced must never be able to
+        // stop the device healing itself. Running it first and unguarded (as this originally did)
+        // is precisely the shape where one component's exception silently disables another.
         val outcome = entryPoint.connectorEnsure().ensure(REASON)
-        Log.i(TAG, "Watchdog tick: $outcome, ${audit.missing.size} permissions missing")
+        val audit =
+            runCatching { entryPoint.permissionAuditor().refresh() }
+                .onFailure { Log.w(TAG, "Permissions audit failed; the connector ensure is unaffected", it) }
+                .getOrNull()
+        Log.i(TAG, "Watchdog tick: $outcome, permissions missing=${audit?.missing?.size ?: "unknown"}")
         return Result.success()
     }
 

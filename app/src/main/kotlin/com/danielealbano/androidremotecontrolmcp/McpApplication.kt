@@ -46,7 +46,11 @@ class McpApplication : Application() {
         configureOsmdroid()
         appIconCache.preload()
         observeAppForeground()
-        connectorEnsure.scheduleWatchdog()
+        // Scheduling reaches WorkManager, which throws if its androidx.startup initializer did not
+        // run. That is a self-heal nicety failing; it must never be able to take the whole process
+        // down on every launch, which an unguarded call in onCreate would do.
+        runCatching { connectorEnsure.scheduleWatchdog() }
+            .onFailure { Log.e(TAG, "Could not schedule the connector watchdog", it) }
         Log.i(TAG, "Application initialized, notification channels created")
     }
 
@@ -62,19 +66,21 @@ class McpApplication : Application() {
      * also exempt from the Android 12+ background foreground-service-start restriction, so unlike
      * the watchdog this start cannot be refused.
      *
-     * The permissions audit rides the same transition, and the ordering is deliberate: the audit
-     * runs FIRST, so a holder opening the app because the device went quiet sees the real reason
-     * ("accessibility is off") rather than watching a connector start and immediately fail to do
-     * anything useful.
+     * The permissions audit rides the same transition, and its failure is ISOLATED from the
+     * ensure. The audit reads `Settings.Secure`, `DevicePolicyManager` and `PowerManager` — all
+     * vendor surfaces that can throw — and it is a REPORT, while the ensure is the thing that
+     * makes the device work again. An unguarded report that can stop a repair is the same shape
+     * as a swallowed dispatch: one component's failure silently disabling another.
      */
     private fun observeAppForeground() {
         ProcessLifecycleOwner.get().lifecycle.addObserver(
             object : DefaultLifecycleObserver {
                 override fun onStart(owner: LifecycleOwner) {
-                    permissionAuditor.refresh()
                     applicationScope.launch {
                         connectorEnsure.ensure(ConnectorEnsure.REASON_FOREGROUND)
                     }
+                    runCatching { permissionAuditor.refresh() }
+                        .onFailure { Log.w(TAG, "Permissions audit failed on foreground", it) }
                 }
             },
         )
