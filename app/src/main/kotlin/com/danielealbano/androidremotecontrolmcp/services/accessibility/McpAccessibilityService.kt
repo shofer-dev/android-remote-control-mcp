@@ -176,10 +176,22 @@ class McpAccessibilityService : AccessibilityService() {
         }
 
     /**
-     * Returns the package name of the currently focused application,
-     * or null if unknown.
+     * Returns the package of the app currently in the foreground, RE-RESOLVED at call time from
+     * the live window list rather than read from the last-event cache.
+     *
+     * The policy enforcer judges every command against this package, so it must be the app the
+     * agent is driving — not whatever most recently changed window state. The last-event value
+     * ([currentPackageName]) is routinely overwritten by this app's own overlay window and by
+     * transient SystemUI dialogs, both structurally undrivable, which made the enforcer refuse
+     * every command. See [resolveForegroundPackage] for the resolution order and fallbacks.
      */
-    fun getCurrentPackageName(): String? = currentPackageName
+    fun getCurrentPackageName(): String? =
+        resolveForegroundPackage(
+            windows = getAccessibilityWindows(),
+            ownPackage = packageName,
+            activeWindowRootProvider = { rootInActiveWindow },
+            cachedPackage = currentPackageName,
+        )
 
     /**
      * Returns the class name (activity name) of the currently focused window,
@@ -395,4 +407,120 @@ internal fun scheduleCacheInvalidationIfNeeded(
  */
 internal fun invalidateCache(cache: AccessibilityNodeCache?) {
     cache?.clear()
+}
+
+/** The SystemUI package — its transient dialogs must never be mistaken for the driven foreground. */
+private const val SYSTEMUI_PACKAGE = "com.android.systemui"
+
+/**
+ * Resolves the REAL foreground application package AT CALL TIME, so a transient overlay — this
+ * app's own edge-border window, a SystemUI dialog — never masquerades as the driven foreground.
+ *
+ * The resolution order, each candidate filtered against [ownPackage] and [SYSTEMUI_PACKAGE]:
+ * 1. the topmost drivable [AccessibilityWindowInfo.TYPE_APPLICATION] window (see
+ *    [foregroundFromWindows]) — the authoritative answer when the window list is available;
+ * 2. the active window's root package ([activeWindowRootProvider]) — used when the window list is
+ *    empty or unavailable;
+ * 3. the last-event [cachedPackage], returned as-is so behaviour degrades to the old value rather
+ *    than crashing when neither of the above resolves.
+ *
+ * Returns null only when nothing resolves; [PolicyEnforcer]-style callers fail closed on a null
+ * foreground.
+ *
+ * Top-level and `internal` so the resolution can be unit-tested without instantiating the service.
+ */
+internal fun resolveForegroundPackage(
+    windows: List<AccessibilityWindowInfo>,
+    ownPackage: String,
+    activeWindowRootProvider: () -> AccessibilityNodeInfo?,
+    cachedPackage: String?,
+): String? =
+    foregroundFromWindows(windows, ownPackage)
+        ?: activeWindowForeground(activeWindowRootProvider, ownPackage)
+        ?: cachedPackage
+
+/**
+ * The topmost drivable application package among [windows], or null when none qualifies. A window
+ * qualifies when it is a [AccessibilityWindowInfo.TYPE_APPLICATION] whose root package is neither
+ * [ownPackage] nor [SYSTEMUI_PACKAGE]. Among the qualifying windows the one with the highest
+ * [AccessibilityWindowInfo.layer] wins; an active/focused window breaks a layer tie.
+ *
+ * Top-level and `internal` so the selection can be unit-tested without instantiating the service.
+ */
+internal fun foregroundFromWindows(
+    windows: List<AccessibilityWindowInfo>,
+    ownPackage: String,
+): String? {
+    var bestPackage: String? = null
+    var bestLayer = Int.MIN_VALUE
+    var bestActive = false
+    for (window in windows) {
+        val pkg = drivableApplicationPackage(window, ownPackage) ?: continue
+        val layer = window.layer
+        val active = window.isActive || window.isFocused
+        val wins =
+            bestPackage == null ||
+                layer > bestLayer ||
+                (layer == bestLayer && active && !bestActive)
+        if (wins) {
+            bestPackage = pkg
+            bestLayer = layer
+            bestActive = active
+        }
+    }
+    return bestPackage
+}
+
+/**
+ * The package the active window's root reports, when it is drivable, else null. The root is
+ * obtained from [activeWindowRootProvider] and recycled before returning. Used only as a fallback
+ * when the window list is empty or unavailable.
+ */
+private fun activeWindowForeground(
+    activeWindowRootProvider: () -> AccessibilityNodeInfo?,
+    ownPackage: String,
+): String? {
+    val activeRoot = activeWindowRootProvider() ?: return null
+    return try {
+        activeRoot.packageName?.toString()?.takeIf { isDrivableForeground(it, ownPackage) }
+    } finally {
+        @Suppress("DEPRECATION")
+        activeRoot.recycle()
+    }
+}
+
+/**
+ * The package of [window] when it is a drivable [AccessibilityWindowInfo.TYPE_APPLICATION] window
+ * (root present, and neither [ownPackage] nor [SYSTEMUI_PACKAGE]), else null. Its root node is
+ * obtained only to read the package and is recycled immediately (a no-op on API 33+, kept for
+ * consistency with the codebase's node-recycling convention).
+ */
+private fun drivableApplicationPackage(
+    window: AccessibilityWindowInfo,
+    ownPackage: String,
+): String? {
+    if (window.type != AccessibilityWindowInfo.TYPE_APPLICATION) return null
+    return window.root?.let { root ->
+        try {
+            root.packageName?.toString()?.takeIf { isDrivableForeground(it, ownPackage) }
+        } finally {
+            @Suppress("DEPRECATION")
+            root.recycle()
+        }
+    }
+}
+
+/**
+ * True when [packageName] names a drivable foreground app — present, and neither this app's own UI
+ * ([ownPackage]) nor SystemUI ([SYSTEMUI_PACKAGE]). Shared by the window path and the active-window
+ * fallback so the "not us, not the system chrome" rule is written once.
+ *
+ * Top-level and `internal` so the filter can be unit-tested without instantiating the service.
+ */
+internal fun isDrivableForeground(
+    packageName: String?,
+    ownPackage: String,
+): Boolean {
+    if (packageName.isNullOrBlank()) return false
+    return packageName != ownPackage && packageName != SYSTEMUI_PACKAGE
 }
