@@ -16,6 +16,7 @@ import com.danielealbano.androidremotecontrolmcp.services.accessibility.BoundsDa
 import com.danielealbano.androidremotecontrolmcp.services.accessibility.TypeInputController
 import com.danielealbano.androidremotecontrolmcp.services.accessibility.WindowData
 import io.mockk.coEvery
+import io.mockk.coVerify
 import io.mockk.every
 import io.mockk.mockk
 import io.mockk.unmockkAll
@@ -700,6 +701,18 @@ class TextInputToolsTest {
             setupVerificationMock()
         }
 
+        /**
+         * Stubs the accessibility tree so [findFocusedEditableNode] resolves [mockFocusedNode],
+         * mirroring the focused-node lookup press_key uses for DEL/TAB/SPACE.
+         */
+        private fun setupFocusedEditableNode(editable: Boolean = true) {
+            @Suppress("DEPRECATION")
+            every { mockRootNode.recycle() } returns Unit
+            every { mockRootNode.findFocus(AccessibilityNodeInfo.FOCUS_INPUT) } returns mockFocusedNode
+            every { mockFocusedNode.isEditable } returns editable
+            every { mockFocusedNode.recycle() } returns Unit
+        }
+
         @Test
         fun `appends text to node`() =
             runTest {
@@ -713,10 +726,60 @@ class TextInputToolsTest {
                 val result = tool.execute(params)
                 val text = extractTextContent(result)
                 assertTrue(text.contains("Typed 5 characters"))
+                assertTrue(text.contains("node 'node_edit'"))
                 assertTrue(text.contains("Field content:"))
 
+                // A named node is still clicked to focus it — the focused-field fallback must not
+                // displace the explicit target.
+                coVerify(exactly = 1) { mockActionExecutor.clickNode("node_edit", sampleWindows) }
+                verify(exactly = 0) { mockRootNode.findFocus(any()) }
                 verify { mockTypeInputController.setSelection(8, 8) }
                 verify(exactly = 5) { mockTypeInputController.commitText(any(), 1) }
+            }
+
+        @Test
+        fun `appends text to the focused field when node_id is omitted`() =
+            runTest {
+                setupDefaultMocks()
+                setupFocusedEditableNode()
+                val params = buildJsonObject { put("text", "Hello") }
+
+                val result = tool.execute(params)
+                val text = extractTextContent(result)
+                assertTrue(text.contains("Typed 5 characters"))
+                assertTrue(text.contains("the focused field"))
+
+                // Nothing is clicked: the caller's own focus is the target.
+                coVerify(exactly = 0) { mockActionExecutor.clickNode(any(), any()) }
+                verify { mockTypeInputController.setSelection(8, 8) }
+                verify(exactly = 5) { mockTypeInputController.commitText(any(), 1) }
+            }
+
+        @Test
+        fun `throws node not found when node_id is omitted and nothing is focused`() =
+            runTest {
+                setupDefaultMocks()
+                @Suppress("DEPRECATION")
+                every { mockRootNode.recycle() } returns Unit
+                every { mockRootNode.findFocus(AccessibilityNodeInfo.FOCUS_INPUT) } returns null
+
+                val params = buildJsonObject { put("text", "Hello") }
+
+                val exception = assertThrows<McpToolException.NodeNotFound> { tool.execute(params) }
+                assertTrue(exception.message!!.contains("no editable field is focused"))
+                verify(exactly = 0) { mockTypeInputController.commitText(any(), any()) }
+            }
+
+        @Test
+        fun `throws node not found when the focused node is not editable`() =
+            runTest {
+                setupDefaultMocks()
+                setupFocusedEditableNode(editable = false)
+
+                val params = buildJsonObject { put("text", "Hello") }
+
+                assertThrows<McpToolException.NodeNotFound> { tool.execute(params) }
+                verify(exactly = 0) { mockTypeInputController.commitText(any(), any()) }
             }
 
         @Test
@@ -738,14 +801,6 @@ class TextInputToolsTest {
 
                 val exception = assertThrows<McpToolException.InvalidParams> { tool.execute(params) }
                 assertTrue(exception.message!!.contains("non-empty"))
-            }
-
-        @Test
-        fun `throws error when node_id is missing`() =
-            runTest {
-                val params = buildJsonObject { put("text", "Hello") }
-
-                assertThrows<McpToolException.InvalidParams> { tool.execute(params) }
             }
 
         @Test
@@ -1597,6 +1652,29 @@ class TextInputToolsTest {
                 val result = tool.execute(params)
                 val text = extractTextContent(result)
                 assertTrue(text.contains("HOME"))
+            }
+
+        @Test
+        fun `presses RECENTS key`() =
+            runTest {
+                coEvery { mockActionExecutor.pressRecents() } returns Result.success(Unit)
+                val params = buildJsonObject { put("key", "RECENTS") }
+
+                val result = tool.execute(params)
+                val text = extractTextContent(result)
+                assertTrue(text.contains("RECENTS"))
+                coVerify(exactly = 1) { mockActionExecutor.pressRecents() }
+            }
+
+        @Test
+        fun `reports RECENTS key failure`() =
+            runTest {
+                coEvery { mockActionExecutor.pressRecents() } returns
+                    Result.failure(IllegalStateException("global action refused"))
+                val params = buildJsonObject { put("key", "RECENTS") }
+
+                val exception = assertThrows<McpToolException.ActionFailed> { tool.execute(params) }
+                assertTrue(exception.message!!.contains("RECENTS key failed"))
             }
 
         @Test

@@ -241,11 +241,11 @@ The MCP server exposes 56 tools across 13 categories. For full JSON-RPC schemas,
 
 | Tool | Description | Required Params | Optional Params |
 |------|-------------|-----------------|-----------------|
-| `android_type_append_text` | Type text at end of field via InputConnection | `node_id` (string), `text` (string) | `typing_speed` (int, ms, default 250), `typing_speed_variance` (int, ms, default 50) |
+| `android_type_append_text` | Type text at end of field via InputConnection | `text` (string) | `node_id` (string, defaults to the focused field), `typing_speed` (int, ms, default 250), `typing_speed_variance` (int, ms, default 50) |
 | `android_type_insert_text` | Type text at specific position via InputConnection | `node_id` (string), `text` (string), `offset` (int) | `typing_speed` (int, ms, default 250), `typing_speed_variance` (int, ms, default 50) |
 | `android_type_replace_text` | Find and replace text in field via InputConnection | `node_id` (string), `search` (string), `new_text` (string) | `typing_speed` (int, ms, default 250), `typing_speed_variance` (int, ms, default 50) |
 | `android_type_clear_text` | Clear all text from field via select-all + delete | `node_id` (string) | — |
-| `android_press_key` | Press a specific key | `key` (string: ENTER/BACK/DEL/HOME/TAB/SPACE) | — |
+| `android_press_key` | Press a specific key | `key` (string: ENTER/BACK/DEL/HOME/RECENTS/TAB/SPACE) | — |
 
 ### 5. System Action Tools (7 tools)
 

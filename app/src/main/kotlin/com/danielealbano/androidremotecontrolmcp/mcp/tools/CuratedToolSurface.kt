@@ -66,10 +66,13 @@ object CuratedToolSurface {
     /** §4 `android_scroll`. */
     const val SCROLL = "scroll"
 
-    /** §4 `android_press_key` (back / home / enter and similar). */
+    /** §4 `android_press_key` (back / home / recents / enter and similar). */
     const val PRESS_KEY = "press_key"
 
-    /** §4 `android_type` — plain text entry (append at the field's end). */
+    /**
+     * §4 `android_type` — plain text entry (append at the field's end). `node_id` is optional:
+     * omitted, the text goes to the field that currently holds input focus.
+     */
     const val TYPE = "type_append_text"
 
     /** §4 `android_launch_app` — allowlisted apps only, checked on-device (§6.4). */

@@ -335,12 +335,13 @@ internal fun validateTextLength(
  * consume real wall-clock time (~500ms). This is acceptable for a unit test.
  *
  * @param typeInputController The controller to check.
- * @param nodeId The node ID (for error message).
+ * @param nodeId The node ID (for error message), or null when the caller targeted the
+ *   already-focused field instead of naming a node.
  * @throws McpToolException.ActionFailed if not ready after FOCUS_POLL_MAX_MS.
  */
 internal suspend fun awaitInputConnectionReady(
     typeInputController: TypeInputController,
-    nodeId: String,
+    nodeId: String?,
 ) {
     val deadline = System.currentTimeMillis() + FOCUS_POLL_MAX_MS
     while (System.currentTimeMillis() < deadline) {
@@ -348,10 +349,16 @@ internal suspend fun awaitInputConnectionReady(
         delay(FOCUS_POLL_INTERVAL_MS)
     }
     throw McpToolException.ActionFailed(
-        "Input connection not available after focusing node '$nodeId'. " +
+        "Input connection not available after focusing ${targetLabel(nodeId)}. " +
             "The node may not be an editable text field.",
     )
 }
+
+/**
+ * Renders the typing target for user-facing messages: the named node when [nodeId] is given,
+ * the currently focused field otherwise.
+ */
+internal fun targetLabel(nodeId: String?): String = nodeId?.let { "node '$it'" } ?: "the focused field"
 
 /**
  * Reads the current field content after an operation completes.
@@ -387,10 +394,7 @@ class TypeAppendTextTool
     ) {
         @Suppress("ThrowsCount")
         suspend fun execute(arguments: JsonObject?): CallToolResult {
-            val nodeId = McpToolUtils.requireString(arguments, "node_id")
-            if (nodeId.isEmpty()) {
-                throw McpToolException.InvalidParams("Parameter 'node_id' must be non-empty")
-            }
+            val nodeId = optionalNodeId(arguments)
 
             val text = McpToolUtils.requireString(arguments, "text")
             if (text.isEmpty()) {
@@ -402,10 +406,7 @@ class TypeAppendTextTool
 
             val fieldContent =
                 typeOperationMutex.withLock {
-                    // Click to focus
-                    val result = getFreshWindows(treeParser, accessibilityServiceProvider, nodeCache)
-                    val clickResult = actionExecutor.clickNode(nodeId, result.windows)
-                    clickResult.onFailure { e -> mapNodeActionException(e, nodeId) }
+                    focusTarget(nodeId)
 
                     // Poll-retry for InputConnection readiness (max 500ms, 50ms interval)
                     awaitInputConnectionReady(typeInputController, nodeId)
@@ -427,7 +428,7 @@ class TypeAppendTextTool
                         } ?: 0
                     if (!typeInputController.setSelection(textLength, textLength)) {
                         throw McpToolException.ActionFailed(
-                            "Failed to position cursor in node '$nodeId' — input connection lost",
+                            "Failed to position cursor in ${targetLabel(nodeId)} — input connection lost",
                         )
                     }
 
@@ -438,11 +439,57 @@ class TypeAppendTextTool
                     readFieldContent(typeInputController)
                 }
 
-            Log.d(TAG, "type_append_text: typed ${text.length} chars on node '$nodeId'")
+            Log.d(TAG, "type_append_text: typed ${text.length} chars on ${targetLabel(nodeId)}")
             return McpToolUtils.untrustedTextResult(
-                "Typed ${text.length} characters at end of node '$nodeId'.\n" +
+                "Typed ${text.length} characters at end of ${targetLabel(nodeId)}.\n" +
                     "Field content: $fieldContent",
             )
+        }
+
+        /**
+         * Reads the optional `node_id` argument.
+         *
+         * Absent means "type into whatever editable field currently holds input focus"; a
+         * present-but-empty value stays a parameter error, since an empty string names no node.
+         *
+         * @return The node ID, or null when the caller did not name one.
+         * @throws McpToolException.InvalidParams if `node_id` is present but empty or not a string.
+         */
+        private fun optionalNodeId(arguments: JsonObject?): String? {
+            if (arguments?.containsKey("node_id") != true) return null
+            val nodeId = McpToolUtils.requireString(arguments, "node_id")
+            if (nodeId.isEmpty()) {
+                throw McpToolException.InvalidParams("Parameter 'node_id' must be non-empty")
+            }
+            return nodeId
+        }
+
+        /**
+         * Brings the typing target into input focus.
+         *
+         * With a [nodeId], the node is clicked (the pre-existing behavior). Without one, the
+         * field that already holds input focus is the target — the same lookup `press_key`
+         * uses for DEL/TAB/SPACE — so nothing is clicked and the caller's own focus stands.
+         *
+         * @throws McpToolException.NodeNotFound if no node was named and no editable field is focused.
+         */
+        private suspend fun focusTarget(nodeId: String?) {
+            if (nodeId == null) {
+                val focusedNode =
+                    findFocusedEditableNode(accessibilityServiceProvider)
+                        ?: throw McpToolException.NodeNotFound(
+                            "No node_id given and no editable field is focused — tap a text field first",
+                        )
+                // Only the existence of the focused field matters here: typing goes through the
+                // InputConnection the IME already holds for it, not through this node handle.
+                @Suppress("DEPRECATION")
+                focusedNode.recycle()
+                return
+            }
+
+            val result = getFreshWindows(treeParser, accessibilityServiceProvider, nodeCache)
+            val clickResult = actionExecutor.clickNode(nodeId, result.windows)
+            clickResult.onFailure { e -> mapNodeActionException(e, nodeId) }
         }
 
         fun register(
@@ -454,6 +501,7 @@ class TypeAppendTextTool
                 description =
                     "Type text character by character at the end of a text field. " +
                         "Uses natural InputConnection typing (indistinguishable from keyboard input). " +
+                        "Omit node_id to type into the text field that currently has focus. " +
                         "Maximum text length: $MAX_TEXT_LENGTH characters. " +
                         "For text longer than $MAX_TEXT_LENGTH chars, call this tool multiple times — " +
                         "subsequent calls continue typing at the current cursor position. " +
@@ -464,7 +512,11 @@ class TypeAppendTextTool
                             buildJsonObject {
                                 putJsonObject("node_id") {
                                     put("type", "string")
-                                    put("description", "Target node ID to type into")
+                                    put(
+                                        "description",
+                                        "Target node ID to type into. Optional — when omitted, " +
+                                            "types into the currently focused text field.",
+                                    )
                                 }
                                 putJsonObject("text") {
                                     put("type", "string")
@@ -494,7 +546,7 @@ class TypeAppendTextTool
                                     )
                                 }
                             },
-                        required = listOf("node_id", "text"),
+                        required = listOf("text"),
                     ),
             ) { request -> execute(request.arguments) }
         }
@@ -981,10 +1033,10 @@ class TypeClearTextTool
 /**
  * MCP tool: press_key
  *
- * Presses a specific key. Supported keys: ENTER, BACK, DEL, HOME, TAB, SPACE.
+ * Presses a specific key. Supported keys: ENTER, BACK, DEL, HOME, RECENTS, TAB, SPACE.
  *
  * Key mapping strategy:
- * - BACK, HOME: Delegate to ActionExecutor global actions (already implemented).
+ * - BACK, HOME, RECENTS: Delegate to ActionExecutor global actions (already implemented).
  * - ENTER: Use ACTION_IME_ENTER.
  * - DEL: Get current text from focused node, remove last character, set text.
  * - TAB, SPACE: Get current text from focused node, append character, set text.
@@ -1020,6 +1072,13 @@ class PressKeyTool
                     val result = actionExecutor.pressHome()
                     result.onFailure { e ->
                         throw McpToolException.ActionFailed("HOME key failed: ${e.message}")
+                    }
+                }
+
+                "RECENTS" -> {
+                    val result = actionExecutor.pressRecents()
+                    result.onFailure { e ->
+                        throw McpToolException.ActionFailed("RECENTS key failed: ${e.message}")
                     }
                 }
 
@@ -1127,7 +1186,9 @@ class PressKeyTool
         ) {
             server.addTool(
                 name = "$toolNamePrefix$TOOL_NAME",
-                description = "Press a specific key (ENTER, BACK, DEL, HOME, TAB, SPACE)",
+                description =
+                    "Press a specific key. " +
+                        "Supported keys: ENTER, BACK, DEL, HOME, RECENTS, TAB, SPACE.",
                 inputSchema =
                     ToolSchema(
                         properties =
@@ -1141,6 +1202,7 @@ class PressKeyTool
                                             add(JsonPrimitive("BACK"))
                                             add(JsonPrimitive("DEL"))
                                             add(JsonPrimitive("HOME"))
+                                            add(JsonPrimitive("RECENTS"))
                                             add(JsonPrimitive("TAB"))
                                             add(JsonPrimitive("SPACE"))
                                         },
@@ -1156,7 +1218,7 @@ class PressKeyTool
         companion object {
             private const val TAG = "MCP:PressKeyTool"
             const val TOOL_NAME = "press_key"
-            private val ALLOWED_KEYS = setOf("ENTER", "BACK", "DEL", "HOME", "TAB", "SPACE")
+            private val ALLOWED_KEYS = setOf("ENTER", "BACK", "DEL", "HOME", "RECENTS", "TAB", "SPACE")
         }
     }
 

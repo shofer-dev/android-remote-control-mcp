@@ -1363,23 +1363,23 @@ curl -X POST http://localhost:8080/mcp \
 
 ## 6. Text Input Tools
 
-Natural text input tools that use the Android AccessibilityService's `FLAG_INPUT_METHOD_EDITOR` + `AccessibilityInputConnection.commitText()` API (API 33+) for character-by-character typing that is indistinguishable from real IME input. All type tools require `node_id` (mandatory), click the node to focus it, and return the field content after the operation for verification.
+Natural text input tools that use the Android AccessibilityService's `FLAG_INPUT_METHOD_EDITOR` + `AccessibilityInputConnection.commitText()` API (API 33+) for character-by-character typing that is indistinguishable from real IME input. `android_type_insert_text`, `android_type_replace_text` and `android_type_clear_text` require `node_id` (mandatory) and click the node to focus it; `android_type_append_text` takes it optionally and falls back to the field that currently holds input focus. All of them return the field content after the operation for verification.
 
 All typing operations are serialized via a Mutex — concurrent MCP requests are queued, not interleaved.
 
 ### `android_type_append_text`
 
-Type text character by character at the end of a text field. Uses natural InputConnection typing (indistinguishable from keyboard input). For text longer than 2000 characters, call this tool multiple times — subsequent calls continue typing at the current cursor position.
+Type text character by character at the end of a text field. Uses natural InputConnection typing (indistinguishable from keyboard input). Omit `node_id` to type into the text field that currently has input focus. For text longer than 2000 characters, call this tool multiple times — subsequent calls continue typing at the current cursor position.
 
 **Input Schema**:
 | Parameter | Type | Required | Default | Description |
 |-----------|------|----------|---------|-------------|
-| `node_id` | string | Yes | - | Target node ID to type into |
+| `node_id` | string | No | focused field | Target node ID to type into; omitted, the currently focused text field is used |
 | `text` | string | Yes | - | Text to type (must be non-empty, max 2000 characters) |
 | `typing_speed` | integer | No | 250 | Base delay between characters in ms (min: 10, max: 5000) |
 | `typing_speed_variance` | integer | No | 50 | Random variance in ms, clamped to [0, typing_speed] |
 
-**Output**: `"Typed N characters at end of node '<node_id>'.\nField content: <content>"`
+**Output**: `"Typed N characters at end of node '<node_id>'.\nField content: <content>"` — with `node_id` omitted, the target reads `the focused field`.
 
 **Request Example**:
 ```json
@@ -1414,9 +1414,9 @@ Type text character by character at the end of a text field. Uses natural InputC
 ```
 
 **Error Cases** (returned as `CallToolResult(isError = true)`):
-- **Invalid params**: Missing or empty `node_id` or `text`, text exceeds 2000 characters, `typing_speed` out of range (10-5000), `typing_speed_variance` negative
+- **Invalid params**: Missing or empty `text`, empty `node_id`, text exceeds 2000 characters, `typing_speed` out of range (10-5000), `typing_speed_variance` negative
 - **Permission denied**: Accessibility service not enabled
-- **Node not found**: Node not found in accessibility tree
+- **Node not found**: Node not found in accessibility tree; or, with `node_id` omitted, no editable field is focused
 - **Action failed**: Click failed, input connection not ready (node may not be editable), cursor positioning failed, typing failed (input connection lost)
 
 ---
@@ -1585,7 +1585,7 @@ Clear all text from a field naturally using select-all + delete. Uses InputConne
 
 ### `android_press_key`
 
-Press a specific key. Supported keys: ENTER, BACK, DEL, HOME, TAB, SPACE.
+Press a specific key. Supported keys: ENTER, BACK, DEL, HOME, RECENTS, TAB, SPACE.
 
 **Input Schema**:
 ```json
@@ -1594,7 +1594,7 @@ Press a specific key. Supported keys: ENTER, BACK, DEL, HOME, TAB, SPACE.
   "properties": {
     "key": {
       "type": "string",
-      "enum": ["ENTER", "BACK", "DEL", "HOME", "TAB", "SPACE"],
+      "enum": ["ENTER", "BACK", "DEL", "HOME", "RECENTS", "TAB", "SPACE"],
       "description": "Key to press"
     }
   },
@@ -1605,7 +1605,7 @@ Press a specific key. Supported keys: ENTER, BACK, DEL, HOME, TAB, SPACE.
 **Output**: `"Key '<KEY>' pressed successfully"`
 
 **Key Behavior**:
-- **BACK**, **HOME**: Delegate to global accessibility actions
+- **BACK**, **HOME**, **RECENTS**: Delegate to global accessibility actions
 - **ENTER**: Uses `ACTION_IME_ENTER`
 - **DEL**: Removes last character from focused field (no-op if empty)
 - **TAB**, **SPACE**: Appends the character to focused field text
