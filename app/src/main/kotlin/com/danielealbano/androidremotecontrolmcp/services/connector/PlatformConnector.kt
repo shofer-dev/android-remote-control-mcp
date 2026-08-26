@@ -50,6 +50,7 @@ import okhttp3.Request
 import okhttp3.Response
 import okhttp3.WebSocket
 import okhttp3.WebSocketListener
+import java.net.Proxy
 import java.util.concurrent.TimeUnit
 import kotlin.random.Random
 
@@ -121,6 +122,15 @@ class PlatformConnector(
             .readTimeout(0, TimeUnit.MILLISECONDS) // long-lived socket; app-level ping is the keepalive
             .pingInterval(0, TimeUnit.MILLISECONDS) // no WS control-ping — the gateway tracks app frames only
             .connectTimeout(CONNECT_TIMEOUT_MS, TimeUnit.MILLISECONDS)
+            // The platform socket must NEVER traverse a device-configured HTTP
+            // proxy. On a managed device the gateway URL is a loopback tunnel
+            // (`ws://127.0.0.1:…`), and a global proxy that captures it hands the
+            // dial to a proxy that cannot reach the tunnel — observed live as the
+            // proxy answering 403 and the device never attaching (the platform
+            // sets a global proxy for governed internet, and Android routed even
+            // loopback through it despite the exclusion list). A direct socket is
+            // also the predictable posture on a phone with a corporate proxy.
+            .proxy(Proxy.NO_PROXY)
             .build()
 
     private var transport: RelayTransport? = null
