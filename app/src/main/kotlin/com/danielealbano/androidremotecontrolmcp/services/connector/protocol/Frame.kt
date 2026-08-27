@@ -32,6 +32,11 @@ import kotlinx.serialization.json.JsonElement
  * - [reason]      the platform's machine-readable refusal reason UNDERNEATH that code
  *                 ([RefusalReason]); absent when the gateway had none to forward.
  * - [details]     prose for a human. Nothing branches on it.
+ * - [capabilities] the SET of optional things this build can do on THIS phone ([Capability]),
+ *                  restated on every `attach` and again whenever the answer changes. A set with no
+ *                  negative form: absent and "cannot" must decide the same way, so an app that
+ *                  advertises nothing is refused the capability rather than discovered to lack it
+ *                  halfway through using it.
  */
 @Serializable
 data class Frame(
@@ -55,6 +60,7 @@ data class Frame(
     val reason: String? = null,
     val details: String? = null,
     @SerialName("last_seen") val lastSeen: String? = null,
+    val capabilities: List<String>? = null,
 )
 
 /**
@@ -73,6 +79,24 @@ object FrameType {
     const val REPLY = "reply"
     const val ACTION_RESULT = "action_result"
 
+    /** Screen capture is live and the media is flowing: `id` is the stream id. */
+    const val STREAM_READY = "stream_ready"
+
+    /**
+     * Screen capture stopped: `id` is the stream id, and `error`/`details` say why when it was a
+     * failure rather than a requested stop. It is what the platform hears when the OS ends a
+     * projection under us — the screen locked, another app started projecting — so a viewer is torn
+     * down and told, instead of watching a channel that quietly stopped producing.
+     */
+    const val STREAM_ENDED = "stream_ended"
+
+    /**
+     * A capability set that changed while attached ([Frame.capabilities]). The connector sends it
+     * so a phone armed (or disarmed) by its holder mid-session starts, or stops, being offered
+     * video without waiting for a reconnect that may be hours away.
+     */
+    const val CAPABILITIES = "capabilities"
+
     // Gateway → device
     const val TERMS = "terms"
     const val ENROLLED = "enrolled"
@@ -89,6 +113,44 @@ object FrameType {
      */
     const val POLICY = "policy"
     const val ERROR = "error"
+
+    /** Begin screen capture: `id` is the stream id every later frame must name. */
+    const val STREAM_START = "stream_start"
+
+    /** End screen capture: `id` is the stream id. */
+    const val STREAM_STOP = "stream_stop"
+}
+
+/**
+ * The optional capabilities a device may advertise, verbatim from
+ * `device-gateway/internal/protocol/host.go`.
+ *
+ * The vocabulary is shared with the device-HOST leg on purpose: "can this thing put a screen on the
+ * wire" is one question the platform asks of three different device classes, and one spelling is
+ * what lets a single gateway read answer it.
+ */
+object Capability {
+    /**
+     * This phone can serve a live screen stream RIGHT NOW without anybody touching it.
+     *
+     * It is not a statement about the build. On Android 14 a capture session needs fresh user
+     * consent unless a live projection is already held, so this is advertised exactly while one IS
+     * held — which is the only form of the claim the console can safely act on, since it chooses
+     * the viewer's transport before any stream is attempted.
+     */
+    const val SCREEN_STREAM = "screen_stream"
+}
+
+/**
+ * The typed codes this connector may put in a [FrameType.STREAM_ENDED] frame's `error`, matching
+ * `device-gateway/internal/protocol/protocol.go`.
+ */
+object StreamError {
+    /** This phone cannot capture: no live consent, no usable encoder, or the OS ended the grant. */
+    const val UNSUPPORTED = "stream-unsupported"
+
+    /** A second stream was asked for while one was running. One screen, one encoder. */
+    const val BUSY = "stream_busy"
 }
 
 /**

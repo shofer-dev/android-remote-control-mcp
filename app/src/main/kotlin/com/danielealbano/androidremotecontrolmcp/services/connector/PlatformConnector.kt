@@ -24,12 +24,16 @@ import com.danielealbano.androidremotecontrolmcp.services.connector.indicator.Re
 import com.danielealbano.androidremotecontrolmcp.services.connector.policy.PolicyDecision
 import com.danielealbano.androidremotecontrolmcp.services.connector.policy.PolicyEnforcer
 import com.danielealbano.androidremotecontrolmcp.services.connector.protocol.ActionName
+import com.danielealbano.androidremotecontrolmcp.services.connector.protocol.Capability
 import com.danielealbano.androidremotecontrolmcp.services.connector.protocol.ConnectorJson
 import com.danielealbano.androidremotecontrolmcp.services.connector.protocol.Frame
 import com.danielealbano.androidremotecontrolmcp.services.connector.protocol.FrameType
 import com.danielealbano.androidremotecontrolmcp.services.connector.protocol.RefusalReason
 import com.danielealbano.androidremotecontrolmcp.services.connector.protocol.WireError
 import com.danielealbano.androidremotecontrolmcp.services.mcp.McpToolServerFactory
+import com.danielealbano.androidremotecontrolmcp.services.screenstream.ScreenStreamController
+import com.danielealbano.androidremotecontrolmcp.services.screenstream.ScreenStreamSink
+import com.danielealbano.androidremotecontrolmcp.services.screenstream.ScreenStreamStart
 import com.danielealbano.androidremotecontrolmcp.utils.MonotonicClock
 import io.modelcontextprotocol.kotlin.sdk.server.ServerSession
 import kotlinx.coroutines.CoroutineScope
@@ -52,6 +56,8 @@ import okhttp3.Request
 import okhttp3.Response
 import okhttp3.WebSocket
 import okhttp3.WebSocketListener
+import okio.ByteString
+import okio.ByteString.Companion.toByteString
 import java.net.Proxy
 import java.util.concurrent.TimeUnit
 import kotlin.random.Random
@@ -129,6 +135,7 @@ class PlatformConnector(
     private val serverFactory: McpToolServerFactory,
     private val policyEnforcer: PolicyEnforcer,
     private val activityIndicator: RemoteActivityIndicator,
+    private val screenStream: ScreenStreamController,
     private val appVersion: String = BuildConfig.VERSION_NAME,
     private val clock: MonotonicClock = MonotonicClock { SystemClock.elapsedRealtime() },
 ) {
@@ -288,6 +295,17 @@ class PlatformConnector(
                     events.trySend(WsEvent.Message(frame))
                 }
 
+                override fun onMessage(
+                    webSocket: WebSocket,
+                    bytes: ByteString,
+                ) {
+                    // A BINARY message is never a frame — it is the console viewer's screen-stream
+                    // control, forwarded verbatim by the gateway. Applying it HERE, off the socket
+                    // callback, is deliberate: it is not an exchange, has no reply and must not
+                    // queue behind the handshake machine's command serialization.
+                    screenStream.applyControl(bytes.toByteArray())
+                }
+
                 override fun onClosing(
                     webSocket: WebSocket,
                     code: Int,
@@ -334,6 +352,7 @@ class PlatformConnector(
         transport?.rebind { frame -> ws.send(encode(frame)) }
 
         val identityWatch = startIdentityWatch(events)
+        val capabilityWatch = startCapabilityWatch()
         var heartbeat: Job? = null
         var windowWatchdog: Job? = null
         var staleWatchdog: Job? = null
@@ -404,6 +423,11 @@ class PlatformConnector(
             return ConnectionResult.Reconnect
         } finally {
             identityWatch.cancel()
+            capabilityWatch.cancel()
+            // A capture does not outlive the socket that asked for it: the platform's only way to
+            // stop this stream is down this connection, so a stream left running after it drops
+            // would encode into a void with the OS indicator lit and nobody watching.
+            stopScreenStream(Frame(type = FrameType.STREAM_STOP))
             heartbeat?.cancel()
             windowWatchdog?.cancel()
             staleWatchdog?.cancel()
@@ -545,7 +569,7 @@ class PlatformConnector(
         fun onOpen() {
             if (config.isEnrolled) {
                 _status.value = ConnectorStatus.Attaching
-                send(Frame(type = FrameType.ATTACH, deviceId = liveDeviceId, appVersion = appVersion))
+                send(attachFrame())
                 state = HState.SENT_ATTACH
             } else {
                 _status.value = ConnectorStatus.Enrolling
@@ -596,6 +620,16 @@ class PlatformConnector(
 
                 FrameType.ACTION -> {
                     scope.launch { handleAction(frame) }
+                    null
+                }
+
+                FrameType.STREAM_START -> {
+                    startScreenStream(frame)
+                    null
+                }
+
+                FrameType.STREAM_STOP -> {
+                    stopScreenStream(frame)
                     null
                 }
 
@@ -668,7 +702,7 @@ class PlatformConnector(
                 acceptedTermsHash = hash
                 _status.value = ConnectorStatus.Attaching
                 Log.i(TAG, "Terms re-accepted; re-attaching with the accepted terms_hash")
-                send(Frame(type = FrameType.ATTACH, deviceId = liveDeviceId, appVersion = appVersion))
+                send(attachFrame())
                 state = HState.SENT_ATTACH
                 return null
             }
@@ -699,7 +733,7 @@ class PlatformConnector(
             settingsRepository.updateConnectorEnrolled(id)
             Log.i(TAG, "Enrolled; device_id persisted. Attaching.")
             _status.value = ConnectorStatus.Attaching
-            send(Frame(type = FrameType.ATTACH, deviceId = id, appVersion = appVersion))
+            send(attachFrame(id))
             state = HState.SENT_ATTACH
             return null
         }
@@ -793,6 +827,118 @@ class PlatformConnector(
                 }
             }
         }
+    }
+
+    // ───────────────────────────── the screen-stream leg ─────────────────────────────────
+    //
+    // A third channel on this socket, and the reason it is a channel rather than a command: the
+    // media is a continuous byte stream with a decoder on the far end, so it must not occupy the
+    // one-exchange-in-flight slot the relay's `cmd`/`reply` pair owns. Lifecycle rides TEXT frames
+    // here; the media itself rides BINARY messages, which the gateway forwards to the browser
+    // untouched. Nothing between this encoder and the console's decoder re-encodes a thing.
+
+    /** The stream id the current capture is running under; null when nothing is streaming. */
+    @Volatile private var streamId: String? = null
+
+    /**
+     * Starts capturing for the platform, answering `stream_ready` or a typed `stream_ended`.
+     *
+     * A refusal is answered rather than dropped, and that is the whole difference between a phone
+     * that cannot stream and a phone that looks dead: the console commits the viewer's transport
+     * before any stream is attempted, so a silent failure here would leave an operator on a black
+     * rectangle that also swallows their taps.
+     */
+    private fun startScreenStream(frame: Frame) {
+        val id = frame.id
+        if (id == null) {
+            Log.w(TAG, "stream_start carried no stream id")
+            return
+        }
+        val sink =
+            object : ScreenStreamSink {
+                override fun message(data: ByteArray) {
+                    // Dropped rather than queued once the stream is over: a message written after
+                    // the platform stopped this capture belongs to nobody.
+                    if (streamId == id) sendBinary(data)
+                }
+
+                override fun ended(
+                    error: String,
+                    details: String,
+                ) {
+                    if (streamId != id) return
+                    streamId = null
+                    activityIndicator.onCommandFinished(clock.nowMillis())
+                    send(Frame(type = FrameType.STREAM_ENDED, id = id, error = error, details = details))
+                }
+            }
+        when (val outcome = screenStream.start(sink)) {
+            is ScreenStreamStart.Started -> {
+                streamId = id
+                // The stream lights the "being driven" signal exactly as a relayed command does.
+                // A holder must be able to tell their screen is being watched, and a capture is
+                // the most invasive thing this app does.
+                activityIndicator.onCommandStarted(clock.nowMillis())
+                send(Frame(type = FrameType.STREAM_READY, id = id))
+            }
+
+            is ScreenStreamStart.Refused -> {
+                send(Frame(type = FrameType.STREAM_ENDED, id = id, error = outcome.code, details = outcome.details))
+            }
+        }
+    }
+
+    /** Stops a capture the platform asked to end. No `stream_ended` — the platform already knows. */
+    private fun stopScreenStream(frame: Frame) {
+        if (frame.id != null && frame.id != streamId) return
+        if (streamId != null) {
+            activityIndicator.onCommandFinished(clock.nowMillis())
+        }
+        streamId = null
+        screenStream.stop()
+    }
+
+    /**
+     * Re-advertises the capability set whenever it changes under a live socket.
+     *
+     * Without this, a holder who arms screen capture while an operator has the panel open would go
+     * on being served the frame poll until the connector happened to reconnect — which on a healthy
+     * link may be hours. The platform re-reads capabilities at every attach anyway; this makes the
+     * answer live as well as correct.
+     */
+    private fun startCapabilityWatch(): Job =
+        scope.launch {
+            screenStream.capable.drop(1).collect {
+                send(Frame(type = FrameType.CAPABILITIES, capabilities = capabilities()))
+            }
+        }
+
+    /** The attach frame, carrying whatever this phone can do at this instant. */
+    private fun attachFrame(deviceId: String = liveDeviceId): Frame =
+        Frame(
+            type = FrameType.ATTACH,
+            deviceId = deviceId,
+            appVersion = appVersion,
+            capabilities = capabilities(),
+        )
+
+    /**
+     * The capability SET. Empty rather than null-with-a-false: the platform's vocabulary has no
+     * negative form, so "cannot" and "did not say" are the same answer by construction and a
+     * capability can never be advertised by an app that merely forgot to withdraw it.
+     */
+    private fun capabilities(): List<String> =
+        buildList {
+            if (screenStream.capable.value) add(Capability.SCREEN_STREAM)
+        }
+
+    private fun sendBinary(data: ByteArray) {
+        val ws = currentSocket
+        if (ws == null) {
+            Log.w(TAG, "No socket to carry screen-stream media")
+            return
+        }
+        ws.send(data.toByteString())
     }
 
     private suspend fun handleAction(frame: Frame) {

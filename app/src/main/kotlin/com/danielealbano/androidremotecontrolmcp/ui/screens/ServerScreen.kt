@@ -28,8 +28,10 @@ import com.danielealbano.androidremotecontrolmcp.services.permissions.RequiredPe
 import com.danielealbano.androidremotecontrolmcp.ui.components.ConnectorKeepAliveHintCard
 import com.danielealbano.androidremotecontrolmcp.ui.components.ConnectorStatusCard
 import com.danielealbano.androidremotecontrolmcp.ui.components.PermissionsHintCard
+import com.danielealbano.androidremotecontrolmcp.ui.components.ScreenStreamCard
 import com.danielealbano.androidremotecontrolmcp.ui.viewmodels.ConnectorViewModel
 import com.danielealbano.androidremotecontrolmcp.ui.viewmodels.PermissionAuditViewModel
+import com.danielealbano.androidremotecontrolmcp.ui.viewmodels.ScreenStreamViewModel
 import com.danielealbano.androidremotecontrolmcp.utils.OemKeepAliveSettings
 import com.danielealbano.androidremotecontrolmcp.utils.PermissionUtils
 
@@ -52,9 +54,11 @@ fun ServerScreen(
     modifier: Modifier = Modifier,
     connectorViewModel: ConnectorViewModel = hiltViewModel(),
     permissionAuditViewModel: PermissionAuditViewModel = hiltViewModel(),
+    screenStreamViewModel: ScreenStreamViewModel = hiltViewModel(),
 ) {
     val connectorState by connectorViewModel.uiState.collectAsStateWithLifecycle()
     val keepAliveHintVisible by connectorViewModel.keepAliveHintVisible.collectAsStateWithLifecycle()
+    val screenStreamArmed by screenStreamViewModel.armed.collectAsStateWithLifecycle()
     val auditState by permissionAuditViewModel.state.collectAsStateWithLifecycle()
     val context = LocalContext.current
 
@@ -90,6 +94,15 @@ fun ServerScreen(
                 onStart = connectorViewModel::start,
                 onStop = connectorViewModel::stop,
                 onUnprovision = connectorViewModel::unprovision,
+            )
+
+            Spacer(Modifier.height(16.dp))
+            // Sits under the connector card because it is only meaningful for a phone the platform
+            // holds: arming a device nothing is attached to arms it for nobody.
+            ScreenStreamCard(
+                armed = screenStreamArmed,
+                onArm = screenStreamViewModel::arm,
+                onDisarm = screenStreamViewModel::disarm,
             )
 
             if (keepAliveHintVisible) {

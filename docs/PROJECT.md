@@ -135,6 +135,7 @@ The typical startup flow: User opens app → enables Accessibility Service in An
   - `services/camera/` — `CameraProvider.kt`, `CameraProviderImpl.kt`, `ServiceLifecycleOwner.kt`
   - `services/location/` — `LocationProvider.kt`, `LocationProviderImpl.kt`
   - `services/mcp/` — `McpServerService.kt`, `BootCompletedReceiver.kt`, `AdbConfigHandler.kt`, `AdbConfigReceiver.kt`, `AdbServiceTrampolineActivity.kt`
+  - `services/screenstream/` — `MediaProjectionHolder.kt`, `ScreenStreamService.kt`, `ScreenStreamConsentActivity.kt`, `H264ScreenEncoder.kt`, `ViewerStreamContract.kt`, `StreamParameters.kt`, `ScreenStreamController.kt`
   - `services/tunnel/` — `TunnelProvider.kt`, `TunnelManager.kt`, `CloudflareTunnelProvider.kt`, `CloudflaredBinaryResolver.kt`, `AndroidCloudflareBinaryResolver.kt`, `NgrokTunnelProvider.kt`
   - `mcp/` — `McpServer.kt`, `McpStreamableHttpExtension.kt`, `McpToolException.kt`, `CertificateManager.kt`
   - `mcp/tools/` — `McpToolUtils.kt`, `TreeFingerprint.kt`, `ScreenIntrospectionTools.kt`, `TouchActionTools.kt`, `NodeActionTools.kt`, `TextInputTools.kt`, `SystemActionTools.kt`, `GestureTools.kt`, `UtilityTools.kt`, `FileTools.kt`, `AppManagementTools.kt`, `CameraTools.kt`, `LocationTools.kt`
@@ -464,6 +465,46 @@ unspent `enrolmentCode`). Four callers ask it and none re-implements it:
   why the keep-alive hint links there; nothing is blocked on either.
 - Boot and the foreground transition are both exempt, so those two starts cannot be refused.
 
+### Remote screen streaming
+
+The platform can view a device's screen as live H.264 video instead of pulling one still at a time.
+Capture is `MediaProjection` -> `MediaCodec` (`services/screenstream/`), and the encoded stream is
+multiplexed onto the connector socket the device already holds: lifecycle on TEXT frames
+(`stream_start` -> `stream_ready`, `stream_stop` -> `stream_ended`), media and the viewer's
+quality-control bytes on BINARY messages. A binary message is never a frame, so video never occupies
+the relay's one-in-flight `cmd` slot, and a stream lights the same "being driven" indicator a
+relayed command does.
+
+**Consent is taken ONCE and the projection is HELD.** Android 14 requires user consent per capture
+session — a session being one `createVirtualDisplay` call — and there is no path an ordinary app can
+take around it: the auto-grant inside SystemUI needs the privileged `CAPTURE_VIDEO_OUTPUT` or the
+`android:project_media` app-op, which only the shell can set, and being a device administrator
+reaches neither. Prompting per session would put a system dialog on the handset every time an
+operator opened a viewer. So `MediaProjectionHolder` takes one consent through
+`ScreenStreamConsentActivity`, hands it to the `mediaProjection` foreground service in the order the
+OS enforces (consent -> `startForeground` -> `getMediaProjection` -> `registerCallback` ->
+`createVirtualDisplay`), and keeps the resulting `VirtualDisplay`, attaching an encoder's input
+surface per session via `resize` + `setSurface`. **One tap arms the phone; every stream after it is
+silent.**
+
+Arming is an act in the app's own UI (`ScreenStreamCard` on the Connector tab) because Android
+blocks a background activity start SILENTLY, which would be indistinguishable from a holder ignoring
+a dialog that never appeared. The OS ends a held projection when the holder stops it from the
+status-bar chip, when another app projects, when the foreground service goes away, when the process
+dies, and — from Android 15 — when the device locks with a secure keyguard; each needs a fresh
+consent, so `armed` goes false and the platform is told rather than a retry being attempted.
+
+**The platform is told through the capability set.** `attach` carries
+`capabilities: ["screen_stream"]` exactly while a live consent is held, and a `capabilities` frame
+re-states it the moment that changes, so a phone armed mid-session is offered video without waiting
+for a reconnect. The vocabulary has no negative form: absent means cannot. A phone that advertises
+nothing is served the frame poll, which is why the poll path remains.
+
+The wire framing is FROZEN by the console's viewer, which is shared with two other device classes:
+a 94-byte metadata block carrying the display's REAL pixel size (the coordinate space every tap is
+mapped through), then one Annex-B NAL per binary message behind a four-byte start code.
+`ViewerStreamContract` owns it and `ViewerStreamContractTest` pins it byte for byte.
+
 ### Platform identity, and the two ways it ends
 
 The identity is TWO durable things: `ConnectorConfig.deviceId` and the ed25519 keypair
@@ -603,7 +644,7 @@ with every surface claiming it is fine.
 
 MainScreen hosts three tabs — Connector, Settings, About.
 
-- **Connector** (`ServerScreen`): a needs-attention area, then `ConnectorStatusCard` — the platform link's state (grounded in the gateway's own heartbeat), edge host, short device id, enrolment, the age of the last platform heartbeat, attach uptime, a Start/Stop control, and — whenever the device holds an identity, which includes every state in which the platform is refusing it — a confirmed **Unprovision** control that forgets the identity so the phone can be provisioned again (see "Platform identity, and the two ways it ends"). An explicit Stop is durable and vetoes every self-heal path (see "Platform connector lifecycle"), so the card says so underneath rather than leaving a deliberate stop looking like a failure. The needs-attention area above it is `PermissionsHintCard` (the permissions audit — see below); below it, once the device is enrolled, a dismissible `ConnectorKeepAliveHintCard` links to the OEM autostart screen and the battery-optimisation list.
+- **Connector** (`ServerScreen`): a needs-attention area, then `ConnectorStatusCard` — the platform link's state (grounded in the gateway's own heartbeat), edge host, short device id, enrolment, the age of the last platform heartbeat, attach uptime, a Start/Stop control, and — whenever the device holds an identity, which includes every state in which the platform is refusing it — a confirmed **Unprovision** control that forgets the identity so the phone can be provisioned again (see "Platform identity, and the two ways it ends"). An explicit Stop is durable and vetoes every self-heal path (see "Platform connector lifecycle"), so the card says so underneath rather than leaving a deliberate stop looking like a failure. The needs-attention area above it is `PermissionsHintCard` (the permissions audit — see below); below it, `ScreenStreamCard` — the holder's Enable/Disable control for remote screen viewing, which is where the one screen-capture consent is taken (see "Remote screen streaming"); and, once the device is enrolled, a dismissible `ConnectorKeepAliveHintCard` linking to the OEM autostart screen and the battery-optimisation list.
 - **Settings** (`SettingsIndexScreen` + a nested NavHost): MCP Tools, Permissions, Storage.
 - **About**: app name, build version, what the app is, and the upstream MIT acknowledgment with the license text in a dialog.
 

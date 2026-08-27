@@ -137,6 +137,7 @@ graph TB
 | Dispatchers.IO        | DataStore reads/writes, Ktor server startup, network I/O, file operations (SAF) |
 | Dispatchers.Default   | Screenshot JPEG encoding, accessibility tree parsing    |
 | Ktor Netty threads    | HTTP request handling (NIO event loop)                  |
+| `screen-stream-encoder` | The H.264 encoder drain loop for one screen-stream session. A dedicated thread rather than a dispatcher: `MediaCodec.dequeueOutputBuffer` is a blocking native call with its own timeout, so parking a pool thread on it for the life of a drive session would take that thread away from the connector's command exchange. |
 
 ### Coroutine Scopes
 

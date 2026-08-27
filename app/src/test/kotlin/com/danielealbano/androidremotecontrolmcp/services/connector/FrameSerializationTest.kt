@@ -2,9 +2,11 @@
 
 package com.danielealbano.androidremotecontrolmcp.services.connector
 
+import com.danielealbano.androidremotecontrolmcp.services.connector.protocol.Capability
 import com.danielealbano.androidremotecontrolmcp.services.connector.protocol.ConnectorJson
 import com.danielealbano.androidremotecontrolmcp.services.connector.protocol.Frame
 import com.danielealbano.androidremotecontrolmcp.services.connector.protocol.FrameType
+import com.danielealbano.androidremotecontrolmcp.services.connector.protocol.StreamError
 import kotlinx.serialization.json.jsonObject
 import kotlinx.serialization.json.jsonPrimitive
 import org.junit.jupiter.api.Assertions.assertEquals
@@ -52,6 +54,62 @@ class FrameSerializationTest {
     fun `attach frame carries device_id and app_version`() {
         val json = encode(Frame(type = FrameType.ATTACH, deviceId = "uuid-1", appVersion = "1.4.2"))
         assertEquals(setOf("type", "device_id", "app_version"), keys(json))
+    }
+
+    @Test
+    fun `an attach that advertises nothing emits no capabilities key at all`() {
+        // The capability vocabulary has no negative form: the platform reads a SET, and absence is
+        // the whole way to say "cannot". An empty array would be a second spelling of the same
+        // answer, so the omitempty contract has to hold here or a phone could appear to be making
+        // a claim it is not.
+        val json = encode(Frame(type = FrameType.ATTACH, deviceId = "uuid-1", appVersion = "1.4.2", capabilities = null))
+        assertFalse(json.contains("capabilities"))
+    }
+
+    @Test
+    fun `an attach that can stream advertises the capability`() {
+        val json =
+            encode(
+                Frame(
+                    type = FrameType.ATTACH,
+                    deviceId = "uuid-1",
+                    appVersion = "1.4.2",
+                    capabilities = listOf(Capability.SCREEN_STREAM),
+                ),
+            )
+        assertEquals(setOf("type", "device_id", "app_version", "capabilities"), keys(json))
+        assertTrue(json.contains("\"capabilities\":[\"screen_stream\"]"))
+    }
+
+    @Test
+    fun `stream_ready carries only the stream id`() {
+        val json = encode(Frame(type = FrameType.STREAM_READY, id = "stream-1"))
+        assertEquals(setOf("type", "id"), keys(json))
+    }
+
+    @Test
+    fun `stream_ended carries the typed refusal the platform branches on`() {
+        val json =
+            encode(
+                Frame(
+                    type = FrameType.STREAM_ENDED,
+                    id = "stream-1",
+                    error = StreamError.UNSUPPORTED,
+                    details = "this phone has no live screen-capture consent",
+                ),
+            )
+        assertEquals(setOf("type", "id", "error", "details"), keys(json))
+    }
+
+    @Test
+    fun `stream_start decodes its stream id`() {
+        val frame =
+            ConnectorJson.decodeFromString(
+                Frame.serializer(),
+                """{"type":"stream_start","id":"stream-1"}""",
+            )
+        assertEquals(FrameType.STREAM_START, frame.type)
+        assertEquals("stream-1", frame.id)
     }
 
     @Test

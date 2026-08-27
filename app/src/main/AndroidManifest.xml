@@ -9,6 +9,11 @@
     <!-- Foreground services -->
     <uses-permission android:name="android.permission.FOREGROUND_SERVICE" />
     <uses-permission android:name="android.permission.FOREGROUND_SERVICE_SPECIAL_USE" />
+    <!-- Screen streaming. Android 14 requires the mediaProjection FGS TYPE and this matching
+         permission before a capture may be obtained: MediaProjection.start throws SecurityException
+         unless a foreground service of that type is already running, and the OS stops the grant the
+         moment one stops. -->
+    <uses-permission android:name="android.permission.FOREGROUND_SERVICE_MEDIA_PROJECTION" />
 
     <!-- Boot receiver -->
     <uses-permission android:name="android.permission.RECEIVE_BOOT_COMPLETED" />
@@ -127,6 +132,25 @@
                 android:name="android.app.PROPERTY_SPECIAL_USE_FGS_SUBTYPE"
                 android:value="Maintains the outbound platform control connection" />
         </service>
+
+        <!-- Screen-stream capture service (docs/phones/android_screen_streaming.md step 4).
+             A SECOND foreground service beside the connector's, because a service may carry only
+             one type and the connector's is specialUse — and because folding capture into it would
+             tie the screen grant to the control connection's lifetime, costing a consent dialog on
+             every reconnect. -->
+        <service
+            android:name=".services.screenstream.ScreenStreamService"
+            android:exported="false"
+            android:foregroundServiceType="mediaProjection" />
+
+        <!-- The OS capture-consent trampoline. Transparent and finishing at once: what the holder
+             sees is the system's own dialog, never a screen of ours in front of it. -->
+        <activity
+            android:name=".services.screenstream.ScreenStreamConsentActivity"
+            android:exported="false"
+            android:excludeFromRecents="true"
+            android:launchMode="singleTop"
+            android:theme="@android:style/Theme.Translucent.NoTitleBar" />
 
         <!-- Enrolment Terms Activity (mid-handshake consent) -->
         <activity

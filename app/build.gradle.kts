@@ -440,6 +440,14 @@ val jacocoExcludes =
         // unit-testable on the JVM; the pure logic (crypto, framing, dedupe) IS covered by tests.
         "**/services/connector/PlatformConnector*",
         "**/services/connector/crypto/KeystoreDeviceIdentity*",
+        // Screen streaming: MediaProjection, MediaCodec and the foreground service are hardware and
+        // OS-lifecycle classes with no JVM stand-in. The pure logic they exist to serve — the frozen
+        // browser-leg framing, the NAL split, the viewer's control message and the sizing rule — IS
+        // covered, in ViewerStreamContractTest and StreamParametersTest.
+        "**/services/screenstream/MediaProjectionHolder*",
+        "**/services/screenstream/H264ScreenEncoder*",
+        "**/services/screenstream/ScreenStreamService*",
+        "**/services/screenstream/ScreenStreamConsentActivity*",
         // UI layer (requires instrumented/Compose tests)
         "**/ui/**",
         // Dependency injection configuration

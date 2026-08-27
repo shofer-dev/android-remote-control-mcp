@@ -37,6 +37,8 @@ import com.danielealbano.androidremotecontrolmcp.services.screencapture.ApiLevel
 import com.danielealbano.androidremotecontrolmcp.services.screencapture.DefaultApiLevelProvider
 import com.danielealbano.androidremotecontrolmcp.services.screencapture.ScreenCaptureProvider
 import com.danielealbano.androidremotecontrolmcp.services.screencapture.ScreenCaptureProviderImpl
+import com.danielealbano.androidremotecontrolmcp.services.screenstream.PlatformScreenStreamController
+import com.danielealbano.androidremotecontrolmcp.services.screenstream.ScreenStreamController
 import com.danielealbano.androidremotecontrolmcp.services.sharing.EphemeralFileLinkService
 import com.danielealbano.androidremotecontrolmcp.services.sharing.EphemeralFileLinkServiceImpl
 import com.danielealbano.androidremotecontrolmcp.services.sharing.SharedContentInbox
@@ -204,6 +206,13 @@ abstract class ServiceModule {
     @Binds
     @Singleton
     abstract fun bindDeviceIdentity(impl: KeystoreDeviceIdentity): DeviceIdentity
+
+    // The screen-capture seam the connector serves a video stream through (MediaProjection ->
+    // MediaCodec H.264 over the connector socket). Behind an interface so the connector — which is
+    // constructed by hand and unit-tested off-device — can be driven with a fake.
+    @Binds
+    @Singleton
+    abstract fun bindScreenStreamController(impl: PlatformScreenStreamController): ScreenStreamController
 
     // The DeviceAdminReceiver-backed executors (lock/wipe via DevicePolicyManager, locate via
     // the flavor-neutral LocationProvider, ring via AudioManager) — §6.4 device-action plane.

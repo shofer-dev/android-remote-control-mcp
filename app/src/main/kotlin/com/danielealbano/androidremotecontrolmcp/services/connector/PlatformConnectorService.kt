@@ -16,6 +16,7 @@ import com.danielealbano.androidremotecontrolmcp.services.connector.crypto.Devic
 import com.danielealbano.androidremotecontrolmcp.services.connector.indicator.RemoteActivityIndicator
 import com.danielealbano.androidremotecontrolmcp.services.connector.policy.PolicyEnforcer
 import com.danielealbano.androidremotecontrolmcp.services.mcp.McpToolServerFactory
+import com.danielealbano.androidremotecontrolmcp.services.screenstream.ScreenStreamController
 import com.danielealbano.androidremotecontrolmcp.ui.ConnectorTermsActivity
 import com.danielealbano.androidremotecontrolmcp.ui.MainActivity
 import com.danielealbano.androidremotecontrolmcp.utils.MonotonicClock
@@ -60,6 +61,8 @@ class PlatformConnectorService : Service() {
     @Inject lateinit var policyEnforcer: PolicyEnforcer
 
     @Inject lateinit var activityIndicator: RemoteActivityIndicator
+
+    @Inject lateinit var screenStream: ScreenStreamController
 
     @Inject lateinit var clock: MonotonicClock
 
@@ -114,6 +117,7 @@ class PlatformConnectorService : Service() {
                 serverFactory = serverFactory,
                 policyEnforcer = policyEnforcer,
                 activityIndicator = activityIndicator,
+                screenStream = screenStream,
                 clock = clock,
             )
         connector = platformConnector

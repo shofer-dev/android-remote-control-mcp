@@ -301,4 +301,12 @@
     <string name="notification_oauth_approval_title">Connection request pending</string>
     <string name="notification_oauth_approval_body">%1$d request(s) waiting — tap to review</string>
     <string name="event_channel_subtitle">Notifications and WiFi event forwarding</string>
+
+    <!-- Screen streaming (remote screen viewing over the platform connector) -->
+    <string name="screen_stream_notification_title">Screen can be viewed remotely</string>
+    <string name="screen_stream_notification_text">This device is set up so an operator can see its screen. Tap to manage.</string>
+    <string name="screen_stream_enable">Enable remote screen</string>
+    <string name="screen_stream_disable">Disable remote screen</string>
+    <string name="screen_stream_armed">Remote screen viewing is on. An operator can see this screen while the connector is attached.</string>
+    <string name="screen_stream_idle">Remote screen viewing is off. Operators see still images pulled one at a time instead of live video.</string>
 </resources>
