@@ -318,6 +318,137 @@ class PolicyEnforcerTest {
         assertEquals(PolicyDecision.Allowed, enforcer.evaluate(toolCall("android_get_screen_state")))
     }
 
+    // ── the navigation escape ─────────────────────────────────────────────────────────
+
+    private fun pressKey(key: String): JsonObject = toolCall("android_press_key", mapOf("key" to key))
+
+    @Test
+    fun `back home and recents escape a structurally denied foreground`() {
+        // Without this the device is uncommandable, not merely constrained: press_key names no
+        // target, so the connector's own UI or a system crash dialog in front refused every
+        // command including Home, recoverable only by hand. A global action changes which app
+        // is in front and injects nothing into the protected one.
+        val env = FakeEnvironment(foreground = "com.android.settings")
+        val enforcer = PolicyEnforcer(env)
+        enforcer.apply(openPolicy())
+        CommandDescriptor.GLOBAL_NAVIGATION_KEYS.forEach { key ->
+            assertEquals(PolicyDecision.Allowed, enforcer.evaluate(pressKey(key)), "key=$key")
+        }
+    }
+
+    @Test
+    fun `the escape covers this app's own UI and the system ui, not only Settings`() {
+        val env = FakeEnvironment(own = "com.danielealbano.androidremotecontrolmcp")
+        val enforcer = PolicyEnforcer(env)
+        enforcer.apply(openPolicy())
+        listOf(env.own, "com.android.systemui").forEach { denied ->
+            env.foreground = denied
+            assertEquals(PolicyDecision.Allowed, enforcer.evaluate(pressKey("HOME")), "foreground=$denied")
+        }
+    }
+
+    @Test
+    fun `the keys that act inside the focused app stay refused there`() {
+        // ENTER confirms whatever dialog Settings is showing, SPACE toggles a checkbox and DEL
+        // destroys text — all of it input into the protected window, which is the agency the
+        // denylist exists to prevent.
+        val env = FakeEnvironment(foreground = "com.android.settings")
+        val enforcer = PolicyEnforcer(env)
+        enforcer.apply(openPolicy())
+        listOf("ENTER", "DEL", "TAB", "SPACE").forEach { key ->
+            assertEquals(
+                PolicyRefusal.STRUCTURALLY_DENIED,
+                refusalOf(enforcer.evaluate(pressKey(key))),
+                "key=$key",
+            )
+        }
+    }
+
+    @Test
+    fun `the escape is keyed on the key, so an unknown one is refused like any other write`() {
+        val env = FakeEnvironment(foreground = "com.android.settings")
+        val enforcer = PolicyEnforcer(env)
+        enforcer.apply(openPolicy())
+        assertEquals(PolicyRefusal.STRUCTURALLY_DENIED, refusalOf(enforcer.evaluate(pressKey("POWER"))))
+        assertEquals(
+            PolicyRefusal.STRUCTURALLY_DENIED,
+            refusalOf(enforcer.evaluate(toolCall("android_press_key"))),
+        )
+    }
+
+    @Test
+    fun `the key is matched however the caller cased it`() {
+        val env = FakeEnvironment(foreground = "com.android.settings")
+        val enforcer = PolicyEnforcer(env)
+        enforcer.apply(openPolicy())
+        assertEquals(PolicyDecision.Allowed, enforcer.evaluate(pressKey("home")))
+    }
+
+    @Test
+    fun `a non-allowlisted foreground is escapable too`() {
+        // Being unable to leave a non-allowlisted app is the same dead end as being unable to
+        // leave a denied one, and the rule that resolves both is "always able to navigate
+        // away". Input into that app stays refused.
+        val env = FakeEnvironment(foreground = "com.example.bank")
+        val enforcer = PolicyEnforcer(env)
+        enforcer.apply(
+            openPolicy(posture = DevicePolicy.Posture.ALLOWLIST_ONLY, apps = listOf("com.example.notes")),
+        )
+        CommandDescriptor.GLOBAL_NAVIGATION_KEYS.forEach { key ->
+            assertEquals(PolicyDecision.Allowed, enforcer.evaluate(pressKey(key)), "key=$key")
+        }
+        assertEquals(PolicyRefusal.APP_NOT_DRIVABLE, refusalOf(enforcer.evaluate(pressKey("ENTER"))))
+        assertEquals(PolicyRefusal.APP_NOT_DRIVABLE, refusalOf(enforcer.evaluate(toolCall("android_tap"))))
+    }
+
+    @Test
+    fun `an undeterminable foreground is escapable, because it is the same dead end`() {
+        val enforcer = PolicyEnforcer(FakeEnvironment(foreground = null))
+        enforcer.apply(openPolicy())
+        assertEquals(PolicyDecision.Allowed, enforcer.evaluate(pressKey("HOME")))
+        assertEquals(PolicyRefusal.APP_NOT_DRIVABLE, refusalOf(enforcer.evaluate(toolCall("android_tap"))))
+    }
+
+    @Test
+    fun `the escape never reaches a call that names its own target`() {
+        // The escape is about leaving the app in front; naming a target is not leaving, so a
+        // stray `key` argument on a launch must not buy anything.
+        val enforcer = PolicyEnforcer(FakeEnvironment())
+        enforcer.apply(openPolicy())
+        val launch =
+            toolCall("android_open_app", mapOf("package_id" to "com.android.settings", "key" to "HOME"))
+        assertEquals(PolicyRefusal.STRUCTURALLY_DENIED, refusalOf(enforcer.evaluate(launch)))
+
+        val deepLink = toolCall("android_open_uri", mapOf("uri" to "package:com.android.settings", "key" to "HOME"))
+        assertEquals(PolicyRefusal.STRUCTURALLY_DENIED, refusalOf(enforcer.evaluate(deepLink)))
+    }
+
+    @Test
+    fun `the escape does not survive the checks that come before the app-scoped ones`() {
+        // It exempts the foreground rules and nothing else: a paused, locked, out-of-hours or
+        // rate-capped device still refuses Home, which is what keeps "nothing acts at 3am" and
+        // "nothing acts on a locked screen" absolute.
+        val env = FakeEnvironment(foreground = "com.android.settings")
+        val enforcer = PolicyEnforcer(env)
+
+        enforcer.apply(openPolicy(paused = true))
+        assertEquals(PolicyRefusal.PAUSED, refusalOf(enforcer.evaluate(pressKey("HOME"))))
+
+        env.locked = true
+        enforcer.apply(openPolicy())
+        assertEquals(PolicyRefusal.SCREEN_LOCKED, refusalOf(enforcer.evaluate(pressKey("HOME"))))
+
+        env.locked = false
+        env.minute = 3 * 60
+        enforcer.apply(openPolicy(activeHours = "08:00-22:00"))
+        assertEquals(PolicyRefusal.OUTSIDE_ACTIVE_HOURS, refusalOf(enforcer.evaluate(pressKey("HOME"))))
+
+        env.minute = 12 * 60
+        enforcer.apply(openPolicy(rate = RateLimit(commands = 1, windowSeconds = 60)))
+        assertEquals(PolicyDecision.Allowed, enforcer.evaluate(pressKey("HOME")))
+        assertEquals(PolicyRefusal.RATE_LIMITED, refusalOf(enforcer.evaluate(pressKey("HOME"))))
+    }
+
     // ── ordering ──────────────────────────────────────────────────────────────────────
 
     @Test

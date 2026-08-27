@@ -62,6 +62,35 @@ data class CommandDescriptor(
                 null
             }
 
+    /**
+     * The key `press_key` would press, uppercased as the tool itself does, or null when this
+     * is not a `press_key` call or names no key.
+     */
+    val pressedKey: String?
+        get() =
+            if (toolBaseName == CuratedToolSurface.PRESS_KEY) {
+                stringArgument("key")?.uppercase()
+            } else {
+                null
+            }
+
+    /**
+     * True when this call is one of the three keys that ask the SYSTEM to change which app is
+     * in front — Back, Home and Recents ([GLOBAL_NAVIGATION_KEYS]).
+     *
+     * The distinction is what makes the enforcer's navigation escape safe, so it is drawn here
+     * rather than at the call site. Those three are dispatched as
+     * `AccessibilityService.GLOBAL_ACTION_BACK` / `_HOME` / `_RECENTS` (`ActionExecutorImpl`):
+     * a request to the system that can only change which app is in front. The rest of
+     * `press_key`'s vocabulary — `ENTER`, `DEL`, `TAB`, `SPACE` — acts INSIDE the focused app's
+     * window through `ACTION_IME_ENTER` / `ACTION_SET_TEXT` on the focused node: `ENTER`
+     * confirms whatever dialog is showing, `SPACE` toggles a checkbox, `DEL` destroys text.
+     * That is exactly the agency the structural denylist exists to prevent, so it is not
+     * exempted.
+     */
+    val isGlobalNavigation: Boolean
+        get() = pressedKey?.let { GLOBAL_NAVIGATION_KEYS.contains(it) } == true
+
     /** Reads one non-blank string argument by name, or null when it is absent or not a string. */
     private fun stringArgument(name: String): String? {
         val raw = arguments?.get(name) ?: return null
@@ -71,6 +100,12 @@ data class CommandDescriptor(
 
     companion object {
         const val METHOD_TOOLS_CALL = "tools/call"
+
+        /**
+         * The `press_key` keys that are global navigation rather than input into the focused
+         * window, spelled as `PressKeyTool` uppercases them before dispatch.
+         */
+        val GLOBAL_NAVIGATION_KEYS: Set<String> = setOf("BACK", "HOME", "RECENTS")
 
         /**
          * Curated base names ordered longest-first, so suffix matching resolves the most

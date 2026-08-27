@@ -106,6 +106,33 @@ class CommandDescriptorTest {
     }
 
     @Test
+    fun `the pressed key is read from the arguments and uppercased`() {
+        assertEquals("HOME", CommandDescriptor.parse(toolCall("android_press_key", mapOf("key" to "home"))).pressedKey)
+        assertNull(CommandDescriptor.parse(toolCall("android_press_key")).pressedKey)
+        assertNull(CommandDescriptor.parse(toolCall("android_tap", mapOf("key" to "HOME"))).pressedKey)
+    }
+
+    @Test
+    fun `only back home and recents are global navigation`() {
+        // The rest of press_key's vocabulary acts inside the focused window — ENTER confirms,
+        // SPACE toggles, DEL destroys — so it is not navigation and earns no exemption.
+        listOf("BACK", "HOME", "RECENTS").forEach { key ->
+            assertTrue(
+                CommandDescriptor.parse(toolCall("android_press_key", mapOf("key" to key))).isGlobalNavigation,
+                key,
+            )
+        }
+        listOf("ENTER", "DEL", "TAB", "SPACE", "POWER").forEach { key ->
+            assertFalse(
+                CommandDescriptor.parse(toolCall("android_press_key", mapOf("key" to key))).isGlobalNavigation,
+                key,
+            )
+        }
+        assertFalse(CommandDescriptor.parse(toolCall("android_tap", mapOf("key" to "HOME"))).isGlobalNavigation)
+        assertFalse(CommandDescriptor.parse(toolCall("android_press_key")).isGlobalNavigation)
+    }
+
+    @Test
     fun `a malformed payload parses to an empty descriptor instead of throwing`() {
         assertFalse(CommandDescriptor.parse(null).isToolCall)
         assertFalse(CommandDescriptor.parse(JsonNull).isToolCall)

@@ -49,6 +49,12 @@ import javax.inject.Singleton
  * the holder is not already looking at, and blinding the agent to where it is would make it
  * worse at recovering; the hazard being contained is AGENCY (§3 of the platform doc splits
  * exactly this way — `android-view` sees, `android-drive` acts).
+ *
+ * For the same reason the last two carry ONE exemption — the **navigation escape**: a
+ * `press_key` of Back, Home or Recents that names no target is allowed however the foreground
+ * app is judged, because those three ask the system to change which app is in front and inject
+ * nothing into the one being protected. Keeping perception open so the agent can see it needs
+ * to press Back is worth nothing if pressing Back is itself refused. See [escape].
  */
 @Singleton
 class PolicyEnforcer
@@ -162,6 +168,15 @@ class PolicyEnforcer
         /**
          * The two app-scoped rules. A launch is judged by the package it NAMES; every other
          * write is judged by the package it would act on — the foreground app.
+         *
+         * The one exemption is the **navigation escape**, and it lives in the foreground branch
+         * alone: a `press_key` of Back, Home or Recents that names no target is allowed even
+         * when the foreground app earns a refusal (structural, allowlist, or undeterminable).
+         * See [escape] for why that is not a hole, and
+         * [CommandDescriptor.isGlobalNavigation] for why the rest of `press_key`'s vocabulary
+         * is not exempt. A call that DOES name a target is judged against that target
+         * unchanged — the escape is about leaving the app in front, and naming one is not
+         * leaving.
          */
         private fun evaluateTarget(
             snapshot: DevicePolicy,
@@ -171,57 +186,91 @@ class PolicyEnforcer
 
             command.targetUri?.let { uri ->
                 packageNamedByUri(uri)?.let { named ->
-                    structuralRefusal(named, command)?.let { return it }
-                    allowlistRefusal(snapshot, named, command)?.let { return it }
+                    appRefusal(snapshot, named)?.let { return refuse(it.error, it.details, command) }
                 }
             }
 
             val target = command.targetPackage
             if (target != null) {
-                structuralRefusal(target, command)?.let { return it }
-                allowlistRefusal(snapshot, target, command)?.let { return it }
+                appRefusal(snapshot, target)?.let { return refuse(it.error, it.details, command) }
                 return PolicyDecision.Allowed
             }
 
-            val foreground =
-                environment.foregroundPackage()?.takeIf { it.isNotBlank() }
-                    ?: return refuse(
-                        PolicyRefusal.APP_NOT_DRIVABLE,
-                        "the foreground app could not be determined, so it cannot be checked against the drivable set",
-                        command,
-                    )
-            structuralRefusal(foreground, command)?.let { return it }
-            allowlistRefusal(snapshot, foreground, command)?.let { return it }
-            return PolicyDecision.Allowed
+            val foreground = environment.foregroundPackage()?.takeIf { it.isNotBlank() }
+            val refusal = if (foreground == null) UNKNOWN_FOREGROUND else appRefusal(snapshot, foreground)
+            if (refusal == null) return PolicyDecision.Allowed
+            if (command.isGlobalNavigation) return escape(refusal, foreground, command)
+            return refuse(refusal.error, refusal.details, command)
         }
 
-        private fun structuralRefusal(
-            packageName: String,
-            command: CommandDescriptor,
-        ): PolicyDecision.Refused? {
-            if (!StructuralDenylist.isDenied(packageName, environment.ownPackage(), environment.settingsPackages())) {
-                return null
-            }
-            return refuse(
-                PolicyRefusal.STRUCTURALLY_DENIED,
-                "'$packageName' is permanently outside the drivable set (this app's own UI and the OS Settings app)",
-                command,
-            )
-        }
-
-        private fun allowlistRefusal(
+        /**
+         * The app-scoped refusal [packageName] earns, or null when it earns none: the
+         * structural denylist first — it is the refusal that must survive the platform being
+         * wrong — then the snapshot's drivable-app rule.
+         *
+         * It LOGS NOTHING, deliberately, which is the one thing to preserve when editing it.
+         * The navigation escape turns some of these into an ALLOW, and a refusal that never
+         * happened must not appear in the log as one; every caller that KEEPS a refusal passes
+         * it to [refuse], which is where the line is written.
+         */
+        private fun appRefusal(
             snapshot: DevicePolicy,
             packageName: String,
+        ): PolicyDecision.Refused? =
+            when {
+                StructuralDenylist.isDenied(packageName, environment.ownPackage(), environment.settingsPackages()) -> {
+                    PolicyDecision.Refused(
+                        PolicyRefusal.STRUCTURALLY_DENIED,
+                        "'$packageName' is permanently outside the drivable set " +
+                            "(this app's own UI and the OS Settings app)",
+                    )
+                }
+
+                !isAppDrivable(snapshot, packageName) -> {
+                    PolicyDecision.Refused(
+                        PolicyRefusal.APP_NOT_DRIVABLE,
+                        "'$packageName' is not in this device's drivable-app set " +
+                            "(posture '${snapshot.drivableAppPosture}')",
+                    )
+                }
+
+                else -> {
+                    null
+                }
+            }
+
+        /**
+         * Allows a Back / Home / Recents press that the foreground app would otherwise have
+         * refused, and says so at INFO — the audit trail for "the agent left Settings", which
+         * is worth exactly as much as the refusal line it replaces.
+         *
+         * Why this is not a hole in the denylist: those three are dispatched as
+         * `AccessibilityService.GLOBAL_ACTION_*`, a request to the SYSTEM rather than an event
+         * injected into the denied app's window, so the most they can do is change which app is
+         * in front. Nothing is typed, confirmed or activated inside the protected UI, and the
+         * only direction they move the agent is OUT.
+         *
+         * Why it must exist at all: without it, a refusal on the foreground app makes the
+         * device uncommandable rather than merely constrained. `press_key` carries no target,
+         * so when the connector's own UI or a system crash dialog came to the front, every
+         * command — Home included — was refused, and only a person physically holding the
+         * handset could recover it. That contradicts the denylist's own rule, which refuses
+         * AGENCY and deliberately keeps perception open *so that* the agent can see it needs to
+         * press Back. Being able to see the exit while being unable to take it is not a
+         * containment property.
+         */
+        private fun escape(
+            refusal: PolicyDecision.Refused,
+            foreground: String?,
             command: CommandDescriptor,
-        ): PolicyDecision.Refused? {
-            val allowed = isAppDrivable(snapshot, packageName)
-            if (allowed) return null
-            return refuse(
-                PolicyRefusal.APP_NOT_DRIVABLE,
-                "'$packageName' is not in this device's drivable-app set " +
-                    "(posture '${snapshot.drivableAppPosture}')",
-                command,
+        ): PolicyDecision {
+            Log.i(
+                TAG,
+                "Navigation escape: '${command.pressedKey}' allowed out of " +
+                    "'${foreground ?: "an undeterminable foreground"}' (${refusal.error}); a global action " +
+                    "changes which app is in front and injects nothing into it",
             )
+            return PolicyDecision.Allowed
         }
 
         private fun refuse(
@@ -237,6 +286,17 @@ class PolicyEnforcer
             private const val TAG = "MCP:PolicyEnforcer"
             private const val MILLIS_PER_MINUTE = 60_000L
             private const val MILLIS_PER_SECOND = 1_000L
+
+            /**
+             * The refusal a command with no named target earns when the device cannot say what
+             * is in front of it. Unlogged like everything [appRefusal] returns, for the same
+             * reason: the navigation escape may turn it into an allow.
+             */
+            private val UNKNOWN_FOREGROUND =
+                PolicyDecision.Refused(
+                    PolicyRefusal.APP_NOT_DRIVABLE,
+                    "the foreground app could not be determined, so it cannot be checked against the drivable set",
+                )
 
             /**
              * The allowlist rule, extracted as pure logic because its two postures fail in
