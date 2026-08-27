@@ -6,6 +6,7 @@ import com.danielealbano.androidremotecontrolmcp.data.model.ConnectorConfig
 import com.danielealbano.androidremotecontrolmcp.data.repository.SettingsRepository
 import com.danielealbano.androidremotecontrolmcp.services.connector.ConnectorEnsure
 import com.danielealbano.androidremotecontrolmcp.services.connector.ConnectorLiveness
+import com.danielealbano.androidremotecontrolmcp.services.connector.ConnectorProvisioning
 import com.danielealbano.androidremotecontrolmcp.services.connector.ConnectorStatus
 import com.danielealbano.androidremotecontrolmcp.services.connector.PlatformConnectorService
 import com.danielealbano.androidremotecontrolmcp.utils.MonotonicClock
@@ -71,6 +72,7 @@ class ConnectorViewModel
     constructor(
         private val settingsRepository: SettingsRepository,
         private val connectorEnsure: ConnectorEnsure,
+        private val provisioning: ConnectorProvisioning,
         private val clock: MonotonicClock,
     ) : ViewModel() {
         private val ticks: Flow<Long> =
@@ -113,6 +115,22 @@ class ConnectorViewModel
         /** The card's Stop control: an explicit stop that the revive paths must respect. */
         fun stop() {
             viewModelScope.launch { connectorEnsure.stop() }
+        }
+
+        /**
+         * The card's Unprovision control: forget this phone's platform identity so it can be
+         * provisioned again.
+         *
+         * It is a LOCAL act with no platform round-trip, which is exactly why it exists — the
+         * recovery it serves is a handset whose platform record is already gone, so there is
+         * nothing to ask and nobody to ask. The connector is deliberately NOT stopped: without an
+         * identity it settles into [ConnectorStatus.NotEnrolled] and waits, which means a fresh
+         * pairing code provisions the phone the instant it arrives instead of after someone
+         * presses Start. Ending the connection the cleared identity belonged to is the connector's
+         * own job (its identity watch), not this method's.
+         */
+        fun unprovision() {
+            viewModelScope.launch { provisioning.unprovision() }
         }
 
         /** Remembers that the holder dismissed the keep-alive hint. */

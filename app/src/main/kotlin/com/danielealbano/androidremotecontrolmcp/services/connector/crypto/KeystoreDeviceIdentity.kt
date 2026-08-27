@@ -85,6 +85,31 @@ class KeystoreDeviceIdentity
             return AttachCrypto.encodeSignature(signed)
         }
 
+        /**
+         * Discards BOTH possible homes of the key — the AndroidKeyStore alias and the persisted
+         * software blob — and the cached material, so the next [ensure] runs the whole selection
+         * from scratch and mints a fresh keypair.
+         *
+         * Every step is best-effort and independent: a keystore that refuses the delete must not
+         * leave the software blob behind, because the selection order would then adopt the old
+         * software key and the reset would look like it worked while the identity did not rotate.
+         * The AES wrapping key is deliberately kept — it wraps whatever key comes next and is not
+         * itself an identity.
+         */
+        @Synchronized
+        override fun reset() {
+            runCatching {
+                val keyStore = KeyStore.getInstance(ANDROID_KEYSTORE).apply { load(null) }
+                if (keyStore.containsAlias(KEY_ALIAS)) keyStore.deleteEntry(KEY_ALIAS)
+            }.onFailure { Log.w(TAG, "Could not delete the hardware identity key alias", it) }
+            runCatching {
+                val file = softwareKeyFile()
+                if (file.exists() && !file.delete()) error("delete returned false for ${file.name}")
+            }.onFailure { Log.w(TAG, "Could not delete the persisted software identity key", it) }
+            material = null
+            Log.w(TAG, "Device identity discarded; a fresh keypair will be minted on the next use")
+        }
+
         @Synchronized
         private fun ensure(): Material {
             material?.let { return it }

@@ -22,8 +22,12 @@ import androidx.compose.material3.HorizontalDivider
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.OutlinedButton
 import androidx.compose.material3.Text
+import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableStateOf
+import androidx.compose.runtime.saveable.rememberSaveable
+import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Color
@@ -59,14 +63,23 @@ private const val MIN_TOUCH_TARGET_DP = 48
  * an explicit veto the self-heal paths respect
  * ([com.danielealbano.androidremotecontrolmcp.services.connector.ConnectorAutoStart]), so the card
  * says so underneath rather than leaving a deliberate stop looking like a failure.
+ *
+ * **Unprovision** is the third control and the destructive one: it forgets this phone's platform
+ * identity so it can be provisioned again. It lives HERE, beside the status, rather than in a
+ * settings screen, because the person who needs it is the one reading a refusal on this very card
+ * — so it is offered for as long as the device holds an identity ([ConnectorUiState.isEnrolled]),
+ * which includes every halted state and every attach error. It is confirmed, and the confirmation
+ * says what it does and what it does not touch.
  */
 @Composable
 fun ConnectorStatusCard(
     state: ConnectorUiState,
     onStart: () -> Unit,
     onStop: () -> Unit,
+    onUnprovision: () -> Unit,
     modifier: Modifier = Modifier,
 ) {
+    var confirmingUnprovision by rememberSaveable { mutableStateOf(false) }
     ElevatedCard(modifier = modifier.fillMaxWidth()) {
         Column(modifier = Modifier.padding(16.dp)) {
             Text(
@@ -82,65 +95,108 @@ fun ConnectorStatusCard(
             HorizontalDivider()
             Spacer(Modifier.height(12.dp))
 
-            DetailRow(
-                label = stringResource(R.string.connector_card_host),
-                value = state.edgeHost.ifBlank { stringResource(R.string.connector_card_unknown) },
-            )
-            DetailRow(
-                label = stringResource(R.string.connector_card_device),
-                value = state.deviceIdShort.ifBlank { stringResource(R.string.connector_card_unknown) },
-            )
-            DetailRow(
-                label = stringResource(R.string.connector_card_enrolled),
-                value =
-                    if (state.isEnrolled) {
-                        stringResource(R.string.connector_card_yes)
-                    } else {
-                        stringResource(R.string.connector_card_no)
-                    },
-            )
-            DetailRow(
-                label = stringResource(R.string.connector_card_heartbeat),
-                value = agoOrUnknown(state.lastServerHeartbeatAgoMillis),
-            )
-            DetailRow(
-                label = stringResource(R.string.connector_card_uptime),
-                value =
-                    state.attachUptimeMillis?.let { DurationFormat.short(it) }
-                        ?: stringResource(R.string.connector_card_unknown),
-            )
-
-            if (state.stoppedByUser && !state.isRunning) {
-                Spacer(Modifier.height(12.dp))
-                Text(
-                    text = stringResource(R.string.connector_card_stopped_by_user),
-                    style = MaterialTheme.typography.bodySmall,
-                    color = MaterialTheme.colorScheme.onSurfaceVariant,
-                )
-            }
+            ConnectorDetails(state)
 
             Spacer(Modifier.height(12.dp))
-            LifecycleControl(isRunning = state.isRunning, onStart = onStart, onStop = onStop)
+            LifecycleControl(
+                isRunning = state.isRunning,
+                canUnprovision = state.isEnrolled,
+                onStart = onStart,
+                onStop = onStop,
+                onUnprovision = { confirmingUnprovision = true },
+            )
         }
+    }
+
+    if (confirmingUnprovision) {
+        ConnectorUnprovisionDialog(
+            onConfirm = {
+                confirmingUnprovision = false
+                onUnprovision()
+            },
+            onDismiss = { confirmingUnprovision = false },
+        )
     }
 }
 
 /**
- * The one control the card offers, in whichever direction is currently meaningful. A filled
- * button for Start (the action a holder looking at a dead connector wants) and an outlined one
- * for Stop (deliberate, not routine).
+ * The card's facts, in the order a holder reads them: which platform, which device, whether it is
+ * enrolled, and the two ages that make "Connected" falsifiable. The deliberate-stop note lives
+ * here too, because a connector that is down on purpose looks identical to one that is down by
+ * accident unless something says so.
+ */
+@Composable
+private fun ConnectorDetails(state: ConnectorUiState) {
+    DetailRow(
+        label = stringResource(R.string.connector_card_host),
+        value = state.edgeHost.ifBlank { stringResource(R.string.connector_card_unknown) },
+    )
+    DetailRow(
+        label = stringResource(R.string.connector_card_device),
+        value = state.deviceIdShort.ifBlank { stringResource(R.string.connector_card_unknown) },
+    )
+    DetailRow(
+        label = stringResource(R.string.connector_card_enrolled),
+        value =
+            if (state.isEnrolled) {
+                stringResource(R.string.connector_card_yes)
+            } else {
+                stringResource(R.string.connector_card_no)
+            },
+    )
+    DetailRow(
+        label = stringResource(R.string.connector_card_heartbeat),
+        value = agoOrUnknown(state.lastServerHeartbeatAgoMillis),
+    )
+    DetailRow(
+        label = stringResource(R.string.connector_card_uptime),
+        value =
+            state.attachUptimeMillis?.let { DurationFormat.short(it) }
+                ?: stringResource(R.string.connector_card_unknown),
+    )
+
+    if (state.stoppedByUser && !state.isRunning) {
+        Spacer(Modifier.height(12.dp))
+        Text(
+            text = stringResource(R.string.connector_card_stopped_by_user),
+            style = MaterialTheme.typography.bodySmall,
+            color = MaterialTheme.colorScheme.onSurfaceVariant,
+        )
+    }
+}
+
+/**
+ * The card's controls. Start/Stop is one button in whichever direction is currently meaningful —
+ * a filled button for Start (the action a holder looking at a dead connector wants) and an
+ * outlined one for Stop (deliberate, not routine).
+ *
+ * Unprovision sits opposite them, as a plain text button in the error colour: available whenever
+ * there is an identity to forget, but never the button a thumb lands on by accident.
  */
 @Composable
 private fun LifecycleControl(
     isRunning: Boolean,
+    canUnprovision: Boolean,
     onStart: () -> Unit,
     onStop: () -> Unit,
+    onUnprovision: () -> Unit,
 ) {
     Row(
         modifier = Modifier.fillMaxWidth(),
-        horizontalArrangement = Arrangement.End,
+        horizontalArrangement = Arrangement.SpaceBetween,
+        verticalAlignment = Alignment.CenterVertically,
     ) {
         val buttonModifier = Modifier.defaultMinSize(minHeight = MIN_TOUCH_TARGET_DP.dp)
+        if (canUnprovision) {
+            TextButton(onClick = onUnprovision, modifier = buttonModifier) {
+                Text(
+                    text = stringResource(R.string.connector_card_unprovision),
+                    color = MaterialTheme.colorScheme.error,
+                )
+            }
+        } else {
+            Spacer(Modifier.width(0.dp))
+        }
         if (isRunning) {
             OutlinedButton(onClick = onStop, modifier = buttonModifier) {
                 Text(stringResource(R.string.connector_card_stop))
@@ -257,6 +313,7 @@ private fun ConnectorStatusCardConnectedPreview() {
                 ),
             onStart = {},
             onStop = {},
+            onUnprovision = {},
         )
     }
 }
@@ -276,10 +333,15 @@ private fun ConnectorStatusCardStoppedByUserPreview() {
                 ),
             onStart = {},
             onStop = {},
+            onUnprovision = {},
         )
     }
 }
 
+/**
+ * A halted card, in the state Unprovision exists for: an enrolled device the platform refuses
+ * because it no longer holds a record of it. The control is visible precisely here.
+ */
 @Preview(showBackground = true)
 @Composable
 private fun ConnectorStatusCardHaltedPreview() {
@@ -287,11 +349,14 @@ private fun ConnectorStatusCardHaltedPreview() {
         ConnectorStatusCard(
             state =
                 ConnectorUiState(
-                    status = ConnectorStatus.EnrolmentRejected(details = null),
+                    status = ConnectorStatus.AttachRejected("credential-service refused: unknown-device"),
+                    deviceIdShort = "7f3ab21c",
                     edgeHost = "devices.justceo.ai",
+                    isEnrolled = true,
                 ),
             onStart = {},
             onStop = {},
+            onUnprovision = {},
         )
     }
 }

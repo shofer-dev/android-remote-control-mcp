@@ -46,6 +46,22 @@ interface DeviceIdentity {
      */
     fun attestationTier(): String
 
+    /**
+     * DESTROYS the current keypair so the next use mints a fresh one.
+     *
+     * Called only when the identity this key backs has ceased to exist — the platform erased the
+     * device record, or the holder unprovisioned the phone
+     * ([com.danielealbano.androidremotecontrolmcp.services.connector.ConnectorProvisioning]). It
+     * is deliberately destructive and deliberately NOT part of the ordinary reconnect path: the
+     * `device_id`↔pubkey binding established at enrolment must survive every transient failure,
+     * so a key that outlives its device id would enrol the phone again under a public key the
+     * platform has already seen bound to a deleted device.
+     *
+     * Implementations must leave the identity in the same state a fresh install has: no keystore
+     * alias, no persisted software key, no cached material.
+     */
+    fun reset()
+
     companion object {
         const val TIER_HARDWARE = "hardware"
         const val TIER_SOFTWARE = "software"

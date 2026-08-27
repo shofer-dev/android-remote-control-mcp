@@ -464,6 +464,38 @@ unspent `enrolmentCode`). Four callers ask it and none re-implements it:
   why the keep-alive hint links there; nothing is blocked on either.
 - Boot and the foreground transition are both exempt, so those two starts cannot be refused.
 
+### Platform identity, and the two ways it ends
+
+The identity is TWO durable things: `ConnectorConfig.deviceId` and the ed25519 keypair
+(`services/connector/crypto/DeviceIdentity`). They must die together — an id with no key can never
+attach, and a key with no id is bound at the platform to a device the phone has forgotten — so
+`services/connector/ConnectorProvisioning.kt` is the ONE place either is destroyed, and both
+callers go through it.
+
+| path | trigger | what is cleared |
+|---|---|---|
+| Self-heal | an attach refused `unauthorized` with `reason: unknown-device` | `deviceId` + keypair; an unspent `enrolmentCode` SURVIVES, so the phone re-enrols on the next dial |
+| Holder | the card's Unprovision control, confirmed | `deviceId` + keypair + `enrolmentCode` |
+
+- **Only `unknown-device` self-heals**, and the decision is
+  `PlatformConnector.refusalVoidsIdentity` — pure, and unit-tested against every neighbouring
+  refusal. Every attach verdict shares the `unauthorized` code, so the gateway's machine-readable
+  `reason` field is what distinguishes them; `revoked`, `bad-signature`, `terms-mismatch`, the
+  missing-nonce/signature protocol faults, an unrecognised reason and an ABSENT one all KEEP the
+  identity. `revoked` is the one that matters most: a device that re-enrolled after a revocation
+  would return as a new device and undo the administrator's decision. Nothing branches on the
+  human-readable `details`.
+- **A live socket does not outlive the identity it attached with.** The connector watches the
+  durable config for the whole life of every connection and ends it when `deviceId` moves, so an
+  unprovision cannot leave an attached phone being driven under a cleared identity.
+- **After either path the connector is left RUNNING and idle** in `NotEnrolled`, not stopped and
+  not vetoed. `ConnectorAutoStart.shouldRun` is already false without a credential, so no revive
+  path restarts anything; and the running loop is waiting on a configuration change, so a fresh
+  pairing code provisions the phone the instant it arrives instead of after someone presses Start.
+- The dial target and the auto-start preference are untouched by both — how the phone is
+  configured, not who it is. So is everything on the platform: the device record and its history
+  are the console's to remove, and the app has no authority over them.
+
 ### Permissions audit
 
 A device can be enrolled, attached and reporting "Connected" while being completely unable to act
@@ -571,7 +603,7 @@ with every surface claiming it is fine.
 
 MainScreen hosts three tabs — Connector, Settings, About.
 
-- **Connector** (`ServerScreen`): a needs-attention area, then `ConnectorStatusCard` — the platform link's state (grounded in the gateway's own heartbeat), edge host, short device id, enrolment, the age of the last platform heartbeat, attach uptime, and a Start/Stop control. An explicit Stop is durable and vetoes every self-heal path (see "Platform connector lifecycle"), so the card says so underneath rather than leaving a deliberate stop looking like a failure. The needs-attention area above it is `PermissionsHintCard` (the permissions audit — see below); below it, once the device is enrolled, a dismissible `ConnectorKeepAliveHintCard` links to the OEM autostart screen and the battery-optimisation list.
+- **Connector** (`ServerScreen`): a needs-attention area, then `ConnectorStatusCard` — the platform link's state (grounded in the gateway's own heartbeat), edge host, short device id, enrolment, the age of the last platform heartbeat, attach uptime, a Start/Stop control, and — whenever the device holds an identity, which includes every state in which the platform is refusing it — a confirmed **Unprovision** control that forgets the identity so the phone can be provisioned again (see "Platform identity, and the two ways it ends"). An explicit Stop is durable and vetoes every self-heal path (see "Platform connector lifecycle"), so the card says so underneath rather than leaving a deliberate stop looking like a failure. The needs-attention area above it is `PermissionsHintCard` (the permissions audit — see below); below it, once the device is enrolled, a dismissible `ConnectorKeepAliveHintCard` links to the OEM autostart screen and the battery-optimisation list.
 - **Settings** (`SettingsIndexScreen` + a nested NavHost): MCP Tools, Permissions, Storage.
 - **About**: app name, build version, what the app is, and the upstream MIT acknowledgment with the license text in a dialog.
 

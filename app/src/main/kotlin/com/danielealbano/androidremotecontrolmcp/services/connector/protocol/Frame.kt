@@ -28,6 +28,10 @@ import kotlinx.serialization.json.JsonElement
  * - [payload]     opaque MCP JSON-RPC frame (relay leg) or an action_result body.
  * - [id]          transport-scoped exchange id, server-minted on `cmd`/`action`.
  * - [messageId]   sender-minted logical idempotency key (relay leg), may be absent.
+ * - [error]       the gateway's typed refusal code ([WireError]).
+ * - [reason]      the platform's machine-readable refusal reason UNDERNEATH that code
+ *                 ([RefusalReason]); absent when the gateway had none to forward.
+ * - [details]     prose for a human. Nothing branches on it.
  */
 @Serializable
 data class Frame(
@@ -48,6 +52,7 @@ data class Frame(
     val params: JsonElement? = null,
     val policy: DevicePolicy? = null,
     val error: String? = null,
+    val reason: String? = null,
     val details: String? = null,
     @SerialName("last_seen") val lastSeen: String? = null,
 )
@@ -101,6 +106,53 @@ object WireError {
     const val TERMS_REQUIRED = "terms-required"
     const val UPGRADE_REQUIRED = "upgrade-required"
     const val UNAUTHORIZED = "unauthorized"
+}
+
+/**
+ * The platform's refusal REASONS, carried in [Frame.reason] underneath a [WireError] code.
+ *
+ * They are minted by credential-service (the device-identity authority) and forwarded verbatim
+ * by the gateway, which never authors or interprets one. They exist because [WireError] alone is
+ * too coarse to act on: EVERY attach verdict arrives as [WireError.UNAUTHORIZED], so without the
+ * reason a device cannot tell an identity the platform has ERASED from one an administrator has
+ * deliberately REVOKED — and the correct responses to those are opposites.
+ *
+ * Only [UNKNOWN_DEVICE] changes what this app does; the rest are declared because a reader of the
+ * refusal branch needs to see what was CONSIDERED and deliberately excluded, not just what was
+ * matched. A reason outside this vocabulary is treated as "not unknown-device" — the safe side,
+ * since the only behaviour keyed on it destroys the device's identity.
+ */
+object RefusalReason {
+    /**
+     * The platform holds NO record of this device id — a deleted device record, or an identity
+     * from a platform this phone is no longer paired with. The stored identity is void by
+     * definition: nothing the device can send under it will ever be accepted, so the app discards
+     * it and provisions again ([com.danielealbano.androidremotecontrolmcp.services.connector.ConnectorProvisioning]).
+     */
+    const val UNKNOWN_DEVICE = "unknown-device"
+
+    /**
+     * An administrator revoked this device. The record EXISTS and the refusal is deliberate, so
+     * the identity is kept: discarding it would let the phone silently re-enrol as a brand-new
+     * device and undo the revocation.
+     */
+    const val REVOKED = "revoked"
+
+    /**
+     * The nonce signature did not verify against the enrolled public key. The record exists and is
+     * trusted; the fault is local (a key that rotated, an OEM signer producing non-raw ed25519).
+     * Discarding the identity would convert a signing regression into a fleet-wide re-pairing.
+     */
+    const val BAD_SIGNATURE = "bad-signature"
+
+    /** A re-consent whose accepted terms hash is not the org's published one. Consent, not identity. */
+    const val TERMS_MISMATCH = "terms-mismatch"
+
+    /** The attach frame reached the authority without a nonce — a protocol fault, not an identity one. */
+    const val MISSING_NONCE = "missing-nonce"
+
+    /** The attach frame reached the authority without a signature — likewise a protocol fault. */
+    const val MISSING_SIGNATURE = "missing-signature"
 }
 
 /**

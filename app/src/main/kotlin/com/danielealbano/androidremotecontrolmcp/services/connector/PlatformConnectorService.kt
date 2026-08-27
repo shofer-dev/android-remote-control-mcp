@@ -53,6 +53,8 @@ class PlatformConnectorService : Service() {
 
     @Inject lateinit var termsBroker: TermsConsentBroker
 
+    @Inject lateinit var provisioning: ConnectorProvisioning
+
     @Inject lateinit var serverFactory: McpToolServerFactory
 
     @Inject lateinit var policyEnforcer: PolicyEnforcer
@@ -108,6 +110,7 @@ class PlatformConnectorService : Service() {
                 deviceIdentity = deviceIdentity,
                 actionHandler = actionHandler,
                 termsBroker = termsBroker,
+                provisioning = provisioning,
                 serverFactory = serverFactory,
                 policyEnforcer = policyEnforcer,
                 activityIndicator = activityIndicator,

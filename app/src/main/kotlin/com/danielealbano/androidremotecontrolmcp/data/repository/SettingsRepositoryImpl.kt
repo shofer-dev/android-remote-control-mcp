@@ -572,6 +572,14 @@ class SettingsRepositoryImpl
             updateConnectorConfig { it.copy(deviceId = deviceId, enrolmentCode = "", stoppedByUser = false) }
         }
 
+        override suspend fun clearConnectorIdentity() {
+            updateConnectorConfig { it.copy(deviceId = "") }
+        }
+
+        override suspend fun clearConnectorEnrolment() {
+            updateConnectorConfig { it.copy(deviceId = "", enrolmentCode = "") }
+        }
+
         override suspend fun updateConnectorAutoStart(enabled: Boolean) {
             updateConnectorConfig { it.copy(autoStart = enabled) }
         }

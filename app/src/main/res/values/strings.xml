@@ -36,6 +36,11 @@
     <string name="connector_card_start">Start</string>
     <string name="connector_card_stop">Stop</string>
     <string name="connector_card_stopped_by_user">You stopped the connector. It will stay stopped — including after a restart — until you start it again.</string>
+    <string name="connector_card_unprovision">Unprovision</string>
+    <string name="connector_card_unprovision_title">Unprovision this phone?</string>
+    <string name="connector_card_unprovision_body">This phone will forget its platform identity and its pairing key, and it will stop being a platform device until it is provisioned again. Its record on the platform, and everything the platform has already recorded about it, are not changed from here. To use this phone again, provision it with a new pairing code.</string>
+    <string name="connector_card_unprovision_confirm">Unprovision</string>
+    <string name="connector_card_unprovision_cancel">Cancel</string>
     <string name="notification_connector_revive_title">Platform Connector stopped</string>
     <string name="notification_connector_revive_text">This device is no longer attached to JustCEO. Tap to reconnect it.</string>
     <string name="connector_keepalive_title">Keep the connector running</string>

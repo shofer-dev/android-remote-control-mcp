@@ -27,6 +27,7 @@ import com.danielealbano.androidremotecontrolmcp.services.connector.protocol.Act
 import com.danielealbano.androidremotecontrolmcp.services.connector.protocol.ConnectorJson
 import com.danielealbano.androidremotecontrolmcp.services.connector.protocol.Frame
 import com.danielealbano.androidremotecontrolmcp.services.connector.protocol.FrameType
+import com.danielealbano.androidremotecontrolmcp.services.connector.protocol.RefusalReason
 import com.danielealbano.androidremotecontrolmcp.services.connector.protocol.WireError
 import com.danielealbano.androidremotecontrolmcp.services.mcp.McpToolServerFactory
 import com.danielealbano.androidremotecontrolmcp.utils.MonotonicClock
@@ -40,6 +41,7 @@ import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.flow.drop
+import kotlinx.coroutines.flow.filter
 import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.flow.update
 import kotlinx.coroutines.isActive
@@ -99,6 +101,22 @@ import kotlin.random.Random
  *   The server refusing is policy; the device refusing is the guarantee, and a device that
  *   holds no socket cannot be commanded by a dispatcher bug at all. It then sleeps until the
  *   window reopens rather than dialling on a backoff that would be refused all night.
+ *
+ * ── The identity is only as durable as the platform's record of it ─────────────────────
+ * Two rules keep a stored `device_id` from outliving its meaning, and both live here rather than
+ * in the UI because a phone in a rack has nobody looking at it:
+ *
+ * - **A void identity is discarded, not retried.** When an attach is refused
+ *   [WireError.UNAUTHORIZED] with reason [RefusalReason.UNKNOWN_DEVICE], the platform has erased
+ *   the device record — so no frame this device can ever send under that id will be accepted, and
+ *   halting on it is a wait for an event that cannot happen. The connector discards the identity
+ *   ([ConnectorProvisioning]) and either re-enrols at once with a pairing code already delivered,
+ *   or publishes [ConnectorStatus.NotEnrolled] and waits for one. Every OTHER refusal KEEPS the
+ *   identity: [refusalVoidsIdentity] says which, and why each is excluded.
+ * - **A live socket does not outlive the identity it attached with.** A holder who unprovisions
+ *   the phone, or a supervisor who replaces its credential, must not leave an attached connection
+ *   driving the device under an identity it no longer holds — so the persisted configuration is
+ *   watched for the whole life of every socket, and a change to the device id ends the connection.
  */
 class PlatformConnector(
     private val appContext: Context,
@@ -107,6 +125,7 @@ class PlatformConnector(
     private val deviceIdentity: DeviceIdentity,
     private val actionHandler: DeviceActionHandler,
     private val termsBroker: TermsConsentBroker,
+    private val provisioning: ConnectorProvisioning,
     private val serverFactory: McpToolServerFactory,
     private val policyEnforcer: PolicyEnforcer,
     private val activityIndicator: RemoteActivityIndicator,
@@ -137,6 +156,14 @@ class PlatformConnector(
     private var session: ServerSession? = null
 
     @Volatile private var currentSocket: WebSocket? = null
+
+    /**
+     * The device id the CURRENT socket is operating under — the stored one at dial time, replaced
+     * by the freshly minted one the instant `enrolled` arrives. It is the identity watch's
+     * reference value, and it is updated BEFORE the new id is persisted so the enrolment's own
+     * write is not mistaken for the identity moving out from under the connection.
+     */
+    @Volatile private var liveDeviceId: String = ""
 
     private var backoffMs = INITIAL_BACKOFF_MS
     private val wakeups = MutableSharedFlow<Unit>(extraBufferCapacity = 1)
@@ -183,6 +210,26 @@ class PlatformConnector(
                             ConnectorStatus.OutsideActiveHours(reopensAtMillis = clock.nowMillis() + result.sleepMillis)
                         Log.i(TAG, "Outside the active-hours window; detached for ${result.sleepMillis}ms")
                         delay(result.sleepMillis)
+                        resetBackoff()
+                    }
+
+                    is ConnectionResult.IdentityVoided -> {
+                        // The platform erased this device's record, so the identity names nothing
+                        // and cannot be repaired by waiting. Discard it and go round again: the
+                        // guards at the top of this loop then either enrol with a pairing code
+                        // that was already delivered, or publish NotEnrolled and wait for one.
+                        provisioning.discardVoidIdentity(result.details)
+                        _status.value = ConnectorStatus.NotEnrolled
+                        // The backoff is the spin guard: a platform that keeps voiding a
+                        // freshly minted identity must not become an enrol-refuse-enrol loop.
+                        waitBeforeRetry(nextRetryDelayMs())
+                    }
+
+                    ConnectionResult.IdentityChanged -> {
+                        // The durable identity moved under a live socket — an unprovision, or a
+                        // supervisor swapping the credential. Nothing is wrong with the link; the
+                        // connection simply belongs to an identity this phone no longer holds.
+                        Log.i(TAG, "The stored identity changed; re-reading the configuration")
                         resetBackoff()
                     }
 
@@ -281,10 +328,12 @@ class PlatformConnector(
                 }
             }
         Log.i(TAG, "Dialing $url")
+        liveDeviceId = config.deviceId
         val ws = client.newWebSocket(Request.Builder().url(url).build(), listener)
         currentSocket = ws
         transport?.rebind { frame -> ws.send(encode(frame)) }
 
+        val identityWatch = startIdentityWatch(events)
         var heartbeat: Job? = null
         var windowWatchdog: Job? = null
         var staleWatchdog: Job? = null
@@ -302,6 +351,11 @@ class PlatformConnector(
                     WsEvent.HeartbeatLapsed -> {
                         Log.w(TAG, "Gateway silent for ${ConnectorLiveness.STALE_AFTER_MS}ms; the link is lost")
                         return ConnectionResult.Reconnect
+                    }
+
+                    WsEvent.IdentityChanged -> {
+                        Log.i(TAG, "The stored identity changed under a live socket; ending the connection")
+                        return ConnectionResult.IdentityChanged
                     }
 
                     WsEvent.ActiveHoursClosed -> {
@@ -349,6 +403,7 @@ class PlatformConnector(
             }
             return ConnectionResult.Reconnect
         } finally {
+            identityWatch.cancel()
             heartbeat?.cancel()
             windowWatchdog?.cancel()
             staleWatchdog?.cancel()
@@ -380,6 +435,21 @@ class PlatformConnector(
         scope.launch {
             delay(ConnectorLiveness.STALE_AFTER_MS)
             events.trySend(WsEvent.HeartbeatLapsed)
+        }
+
+    /**
+     * Watches the durable configuration for the whole life of one socket and ends the connection
+     * the moment the persisted device id stops being the one this socket attached with.
+     *
+     * Without it an unprovision — or a supervisor swapping the credential — would leave an
+     * ATTACHED phone serving relay commands under an identity it no longer holds, for as long as
+     * the socket happened to survive. The enrolment's own write is not a change by this
+     * definition: [liveDeviceId] is updated before the new id is persisted.
+     */
+    private fun startIdentityWatch(events: Channel<WsEvent>): Job =
+        scope.launch {
+            settingsRepository.connectorConfig.filter { it.deviceId != liveDeviceId }.first()
+            events.trySend(WsEvent.IdentityChanged)
         }
 
     /** Records that the gateway answered, refreshing the timestamp the UI reads freshness from. */
@@ -448,7 +518,12 @@ class PlatformConnector(
 
     // ─────────────────────────────── handshake state machine ──────────────────────────────
 
-    private enum class HState { SENT_ENROLL, SENT_ACCEPT, SENT_ATTACH, SENT_ATTACH_SIG, ATTACHED }
+    /**
+     * Where in the eight-frame handshake this socket is. Internal rather than private because
+     * [refusalVoidsIdentity] takes it: which refusals may destroy the device's identity depends
+     * on the phase they arrive in, and that rule is unit-tested without a socket.
+     */
+    internal enum class HState { SENT_ENROLL, SENT_ACCEPT, SENT_ATTACH, SENT_ATTACH_SIG, ATTACHED }
 
     /**
      * Drives the eight-frame handshake and the steady-state routing for a single socket. The
@@ -458,7 +533,6 @@ class PlatformConnector(
         private val config: ConnectorConfig,
     ) {
         private var state: HState = HState.SENT_ATTACH
-        private var deviceId: String = config.deviceId
         private var pendingReAccept = false
 
         /**
@@ -471,7 +545,7 @@ class PlatformConnector(
         fun onOpen() {
             if (config.isEnrolled) {
                 _status.value = ConnectorStatus.Attaching
-                send(Frame(type = FrameType.ATTACH, deviceId = deviceId, appVersion = appVersion))
+                send(Frame(type = FrameType.ATTACH, deviceId = liveDeviceId, appVersion = appVersion))
                 state = HState.SENT_ATTACH
             } else {
                 _status.value = ConnectorStatus.Enrolling
@@ -594,7 +668,7 @@ class PlatformConnector(
                 acceptedTermsHash = hash
                 _status.value = ConnectorStatus.Attaching
                 Log.i(TAG, "Terms re-accepted; re-attaching with the accepted terms_hash")
-                send(Frame(type = FrameType.ATTACH, deviceId = deviceId, appVersion = appVersion))
+                send(Frame(type = FrameType.ATTACH, deviceId = liveDeviceId, appVersion = appVersion))
                 state = HState.SENT_ATTACH
                 return null
             }
@@ -619,7 +693,9 @@ class PlatformConnector(
                 Log.w(TAG, "enrolled frame without device_id")
                 return ConnectionResult.Reconnect
             }
-            deviceId = id
+            // BEFORE the persist, so the identity watch reads the enrolment's own write as the
+            // identity this socket already holds rather than as one changing under it.
+            liveDeviceId = id
             settingsRepository.updateConnectorEnrolled(id)
             Log.i(TAG, "Enrolled; device_id persisted. Attaching.")
             _status.value = ConnectorStatus.Attaching
@@ -664,7 +740,16 @@ class PlatformConnector(
         private fun onError(frame: Frame): ConnectionResult? {
             val code = frame.error.orEmpty()
             val details = frame.details
-            Log.w(TAG, "Refusal from gateway: $code (${details ?: "no details"})")
+            Log.w(
+                TAG,
+                "Refusal from gateway: $code/${frame.reason ?: "no reason"} (${details ?: "no details"})",
+            )
+            // Checked before the code branch below because it is the one refusal whose remedy is
+            // to destroy state rather than to wait: the identity the code branch would halt on
+            // does not exist any more.
+            if (refusalVoidsIdentity(code, frame.reason, state)) {
+                return ConnectionResult.IdentityVoided(details)
+            }
             return when (code) {
                 WireError.UPGRADE_REQUIRED -> {
                     ConnectionResult.Halt(ConnectorStatus.UpgradeRequired)
@@ -816,10 +901,29 @@ class PlatformConnector(
 
         /** The liveness watchdog fired: the gateway stopped answering on a socket still held. */
         data object HeartbeatLapsed : WsEvent
+
+        /** The persisted device id is no longer the one this socket attached with. */
+        data object IdentityChanged : WsEvent
     }
 
     private sealed interface ConnectionResult {
         data object Reconnect : ConnectionResult
+
+        /**
+         * The platform answered an attach with [RefusalReason.UNKNOWN_DEVICE]: it holds no record
+         * of this device id, so the stored identity is void. [details] is the gateway's prose,
+         * carried only to be logged.
+         */
+        data class IdentityVoided(
+            val details: String?,
+        ) : ConnectionResult
+
+        /**
+         * The persisted device id changed while this socket was open — the holder unprovisioned
+         * the phone, or a supervisor replaced its credential. The socket is ended because it
+         * belongs to an identity the device no longer holds.
+         */
+        data object IdentityChanged : ConnectionResult
 
         /**
          * The active-hours window is closed. The connector detaches and stays detached for
@@ -885,6 +989,44 @@ class PlatformConnector(
                 DialResolution.Invalid(url)
             }
         }
+
+        /**
+         * Whether a gateway refusal proves the device's STORED IDENTITY no longer exists, and may
+         * therefore be destroyed. Pure, and separated from the socket so the whole decision — the
+         * one case that resets and every neighbouring case that must not — is unit-testable.
+         *
+         * The test is THREE conjuncts, and dropping any of them is a way to wipe a live identity:
+         *
+         * 1. **The code is [WireError.UNAUTHORIZED].** No other code is a verdict about identity.
+         * 2. **The reason is [RefusalReason.UNKNOWN_DEVICE]** — the platform holds no record of
+         *    this device id. Every attach verdict shares the `unauthorized` code, so the code
+         *    alone means only "the attach failed" and resetting on it would destroy an identity
+         *    over a bad signature or an administrator's revocation. Deliberately EXCLUDED, each
+         *    for its own reason:
+         *    - [RefusalReason.REVOKED] — the record exists and the refusal is intentional.
+         *      Discarding the identity would let the phone re-enrol as a NEW device and quietly
+         *      undo the revocation, which is the worst outcome this function can produce.
+         *    - [RefusalReason.BAD_SIGNATURE] — the record exists and is trusted; the fault is a
+         *      local key or an OEM signer. A reset would turn a signing regression into a
+         *      fleet-wide re-pairing, and the honest repair is from the platform side.
+         *    - [RefusalReason.TERMS_MISMATCH] — a consent verdict, not an identity one.
+         *    - [RefusalReason.MISSING_NONCE] / [RefusalReason.MISSING_SIGNATURE] — protocol
+         *      faults; the device is known.
+         *    - anything unrecognised, including an ABSENT reason (a gateway that does not forward
+         *      one): the safe side of a decision whose only action is destructive.
+         * 3. **The phase is an ATTACH phase.** A refusal during enrolment
+         *    ([HState.SENT_ENROLL]/[HState.SENT_ACCEPT]) is about the pairing CODE — there is no
+         *    identity yet to void — and one after [HState.ATTACHED] is not an attach verdict at
+         *    all.
+         */
+        internal fun refusalVoidsIdentity(
+            code: String,
+            reason: String?,
+            state: HState,
+        ): Boolean =
+            code == WireError.UNAUTHORIZED &&
+                reason == RefusalReason.UNKNOWN_DEVICE &&
+                (state == HState.SENT_ATTACH || state == HState.SENT_ATTACH_SIG)
 
         /**
          * Builds the `attach_sig` frame. The [signature] (ed25519 over the nonce) is always

@@ -89,6 +89,7 @@ fun ServerScreen(
                 state = connectorState,
                 onStart = connectorViewModel::start,
                 onStop = connectorViewModel::stop,
+                onUnprovision = connectorViewModel::unprovision,
             )
 
             if (keepAliveHintVisible) {

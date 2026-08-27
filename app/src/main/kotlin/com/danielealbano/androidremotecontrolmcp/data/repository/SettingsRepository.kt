@@ -287,6 +287,22 @@ interface SettingsRepository {
     /** Persists the device id returned by `enrolled` and clears the spent enrolment code. */
     suspend fun updateConnectorEnrolled(deviceId: String)
 
+    /**
+     * Discards the stored device id, KEEPING any enrolment code. This is the self-heal write: the
+     * platform has told the device its identity does not exist, and a pairing code that was
+     * delivered while the dead id was still held is exactly what must survive to provision the
+     * phone again on the very next dial.
+     */
+    suspend fun clearConnectorIdentity()
+
+    /**
+     * Discards the stored device id AND any unspent enrolment code — the holder's deliberate
+     * unprovision. The dial target and the auto-start preference are left alone: they are how the
+     * phone is configured, not who it is, and a rack operator re-pairing the same handset needs
+     * them intact.
+     */
+    suspend fun clearConnectorEnrolment()
+
     /** Updates the connector auto-start toggle. */
     suspend fun updateConnectorAutoStart(enabled: Boolean)
 
