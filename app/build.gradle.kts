@@ -328,6 +328,12 @@ dependencies {
     implementation(libs.camerax.camera2)
     implementation(libs.camerax.lifecycle)
     implementation(libs.camerax.video)
+    // PreviewView — the viewfinder the pairing QR scanner renders through
+    implementation(libs.camerax.view)
+
+    // ZXing core — QR decoding for platform pairing. Pure Java: no Play Services, so the foss
+    // flavor scans exactly as the gms one does.
+    implementation(libs.zxing.core)
 
     // Google Play Services (gms flavor only — excluded from the foss/F-Droid build)
     "gmsImplementation"(libs.play.services.location)

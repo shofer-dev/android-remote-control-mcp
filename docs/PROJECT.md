@@ -105,6 +105,8 @@ The typical startup flow: User opens app → enables Accessibility Service in An
 - **Kotlinx Coroutines**: Async/concurrency
 - **Android Log**: Logging (standard Android Log class)
 - **Accompanist**: Compose utilities (permissions handling)
+- **CameraX**: Camera capture for the camera tools and for the pairing QR viewfinder (`camera-view`)
+- **ZXing `core` 3.5.4**: QR decoding for platform pairing. The `core` artifact only — pure Java, no Android, AWT or Play Services dependency, so the `foss` flavor scans exactly as `gms` does. `zxing-android-embedded` was rejected: it ships its own capture Activity and drives the deprecated `android.hardware.Camera` API, where CameraX is already on the classpath.
 - **Google Play Services Location**: Device location via FusedLocationProviderClient
 
 ### Testing
@@ -437,6 +439,55 @@ Each storage location has per-location permission flags controlling what MCP too
 - Never store Activity context in long-lived objects — use ApplicationContext
 - Cancel coroutine scopes in `onDestroy()`; recycle large bitmaps after encoding; use `use {}` for automatic stream closure
 
+### How a phone is paired with the platform
+
+Pairing gives the phone the two facts it needs to dial and enrol: the **edge host**
+(`wss://<host>/ws/device`) and a **one-time enrolment code**. There are two ways in, and they end
+at the same durable write:
+
+| device class | who supplies the two facts | path |
+|---|---|---|
+| tethered / emulated | its device-host, over the cable | `ADB_CONFIGURE` broadcast, `--es edge_host` + `--es enrolment_code` (`services/mcp/AdbConfigHandler.kt`) |
+| physical / remote | the holder, from the operator console | the Pair surface in the app (`ui/components/ConnectorPairingCard.kt` → `ConnectorPairingDialog.kt`) |
+
+A remote phone has no host, no cable and nobody at a terminal, so the in-app surface is its ONLY
+way in — and with it, everything that depends on enrolment, screen streaming included.
+
+- **Where it appears.** Above the connector card, whenever the device holds no platform identity
+  (`ConnectorUiState.isEnrolled` false). That predicate rather than a connector STATUS, because a
+  freshly installed app has never run its connector service and therefore reports `Stopped`, not
+  `NotEnrolled` — gating on the status would hide pairing on exactly the phone that needs it. The
+  same predicate keeps it visible after a refused code and after an unprovision.
+- **Scanning is the primary path.** The console renders `justceo-enrol:v1?host=<edge_host>&code=<code>`
+  as a QR code; the app decodes it from a CameraX frame (`services/connector/QrPairingDecoder.kt`,
+  `PairingQrAnalyzer.kt`). An enrolment code has no redundancy in it, so a single mistyped character
+  is indistinguishable from an expired code — scanning removes the transcription entirely. The
+  analyser latches after the first read, or a code held in frame would be submitted many times a
+  second and spent once, then refused for ever after.
+- **Typing is the fallback, and it is always one tap away** — including when the CAMERA permission
+  has been refused, which must not dead-end the only way to pair a phone. The permission is
+  requested at the point of use, with the rationale on screen before the system dialog.
+- **What is written, and where.** One repository call,
+  `SettingsRepository.updateConnectorPairing(edgeHost, code)`, which sets `edgeHost` and
+  `enrolmentCode` and clears the `gatewayUrl` override in a single `ConnectorConfig` transform. One
+  write because the two fields are one decision: written separately the connector wakes on the
+  first, reads a host with no code, and republishes "not enrolled" in between. The override is
+  cleared because it takes precedence over the host, so leaving it would dial somewhere other than
+  what the holder just supplied.
+- **Nothing else is touched.** Not the device id, not the auto-start preference, not the keep-alive
+  hint. Unprovisioning is its own control.
+- **No Start button is needed.** `PlatformConnector.run` parks in `awaitConfigChange()` in exactly
+  the states this surface is offered from, so the write itself releases the loop and the phone
+  dials. `ConnectorEnsure.start()` is called as well, for the other case — an app whose connector
+  service has never run — and is idempotent when it has.
+- **Progress is the connector's, not the dialog's.** `ConnectorViewModel.pairingProgress` projects
+  `ConnectorStatus` into `PairingProgress`, and a refusal carries the PLATFORM's reason
+  (`ConnectorStatus.Halted.reason`) rather than a generic failure: "expired" and "already used" send
+  the holder to different places, and only one of them is a trip back to the console. A three-second
+  settle window guards the one race that would lie — a holder fetching a fresh code BECAUSE the
+  connector sits in `EnrolmentRejected` would otherwise be shown the previous attempt's refusal as
+  the new one's, instantly and convincingly.
+
 ### Platform connector lifecycle
 
 `START_STICKY` is a request, not a guarantee. OEM builds (HyperOS, One UI, EMUI) kill a foreground
@@ -644,7 +695,7 @@ with every surface claiming it is fine.
 
 MainScreen hosts three tabs — Connector, Settings, About.
 
-- **Connector** (`ServerScreen`): a needs-attention area, then `ConnectorStatusCard` — the platform link's state (grounded in the gateway's own heartbeat), edge host, short device id, enrolment, the age of the last platform heartbeat, attach uptime, a Start/Stop control, and — whenever the device holds an identity, which includes every state in which the platform is refusing it — a confirmed **Unprovision** control that forgets the identity so the phone can be provisioned again (see "Platform identity, and the two ways it ends"). An explicit Stop is durable and vetoes every self-heal path (see "Platform connector lifecycle"), so the card says so underneath rather than leaving a deliberate stop looking like a failure. The needs-attention area above it is `PermissionsHintCard` (the permissions audit — see below); below it, `ScreenStreamCard` — the holder's Enable/Disable control for remote screen viewing, which is where the one screen-capture consent is taken (see "Remote screen streaming"); and, once the device is enrolled, a dismissible `ConnectorKeepAliveHintCard` linking to the OEM autostart screen and the battery-optimisation list.
+- **Connector** (`ServerScreen`): a needs-attention area, then — on a phone that holds no platform identity — `ConnectorPairingCard`, whose control opens `ConnectorPairingDialog` (scan the console's pairing code, or type the edge host and code; see "How a phone is paired with the platform"), then `ConnectorStatusCard` — the platform link's state (grounded in the gateway's own heartbeat), edge host, short device id, enrolment, the age of the last platform heartbeat, attach uptime, a Start/Stop control, and — whenever the device holds an identity, which includes every state in which the platform is refusing it — a confirmed **Unprovision** control that forgets the identity so the phone can be provisioned again (see "Platform identity, and the two ways it ends"). An explicit Stop is durable and vetoes every self-heal path (see "Platform connector lifecycle"), so the card says so underneath rather than leaving a deliberate stop looking like a failure. The needs-attention area above it is `PermissionsHintCard` (the permissions audit — see below); below it, `ScreenStreamCard` — the holder's Enable/Disable control for remote screen viewing, which is where the one screen-capture consent is taken (see "Remote screen streaming"); and, once the device is enrolled, a dismissible `ConnectorKeepAliveHintCard` linking to the OEM autostart screen and the battery-optimisation list.
 - **Settings** (`SettingsIndexScreen` + a nested NavHost): MCP Tools, Permissions, Storage.
 - **About**: app name, build version, what the app is, and the upstream MIT acknowledgment with the license text in a dialog.
 

@@ -16,6 +16,9 @@ import androidx.compose.material3.Text
 import androidx.compose.material3.TopAppBar
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableStateOf
+import androidx.compose.runtime.saveable.rememberSaveable
+import androidx.compose.runtime.setValue
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.res.stringResource
@@ -26,6 +29,8 @@ import com.danielealbano.androidremotecontrolmcp.R
 import com.danielealbano.androidremotecontrolmcp.services.permissions.PermissionRemedy
 import com.danielealbano.androidremotecontrolmcp.services.permissions.RequiredPermission
 import com.danielealbano.androidremotecontrolmcp.ui.components.ConnectorKeepAliveHintCard
+import com.danielealbano.androidremotecontrolmcp.ui.components.ConnectorPairingCard
+import com.danielealbano.androidremotecontrolmcp.ui.components.ConnectorPairingDialog
 import com.danielealbano.androidremotecontrolmcp.ui.components.ConnectorStatusCard
 import com.danielealbano.androidremotecontrolmcp.ui.components.PermissionsHintCard
 import com.danielealbano.androidremotecontrolmcp.ui.components.ScreenStreamCard
@@ -89,6 +94,10 @@ fun ServerScreen(
                 Spacer(Modifier.height(16.dp))
             }
 
+            // Above the status card, because on an unpaired phone the status card can only report
+            // that there is nothing to report — and pairing is the one action that changes it.
+            ConnectorPairing(isEnrolled = connectorState.isEnrolled, viewModel = connectorViewModel)
+
             ConnectorStatusCard(
                 state = connectorState,
                 onStart = connectorViewModel::start,
@@ -115,6 +124,59 @@ fun ServerScreen(
             }
         }
     }
+}
+
+/**
+ * The pairing prompt and the dialog it opens.
+ *
+ * The two have DIFFERENT lifetimes, and that is the point. The prompt is gone the moment the phone
+ * holds an identity, because there is nothing left to prompt for — but the dialog is not, or a
+ * pairing would disappear at the exact instant it succeeded: `deviceId` is persisted when the
+ * platform answers `enrolled`, one step BEFORE the attach, so tying the dialog to the same
+ * condition would take it off screen mid-handshake and never show the holder that it worked.
+ *
+ * The open/closed flag lives here rather than in [ServerScreen] because nothing else on the screen
+ * has any business knowing whether a dialog is up.
+ */
+@Composable
+private fun ConnectorPairing(
+    isEnrolled: Boolean,
+    viewModel: ConnectorViewModel,
+) {
+    var open by rememberSaveable { mutableStateOf(false) }
+
+    if (!isEnrolled) {
+        ConnectorPairingCard(onPair = { open = true })
+        Spacer(Modifier.height(16.dp))
+    }
+
+    if (open) {
+        ConnectorPairingHost(viewModel = viewModel, onClose = { open = false })
+    }
+}
+
+/**
+ * The pairing dialog while it is open. Separate so the progress projection — and the one-second
+ * ticker behind it — is subscribed to only while somebody is looking at it.
+ *
+ * Closing CANCELS the attempt in the ViewModel, which forgets that an attempt was made and not the
+ * pairing itself, so re-opening later starts at the scanner instead of re-showing a stale outcome.
+ */
+@Composable
+private fun ConnectorPairingHost(
+    viewModel: ConnectorViewModel,
+    onClose: () -> Unit,
+) {
+    val progress by viewModel.pairingProgress.collectAsStateWithLifecycle()
+    ConnectorPairingDialog(
+        progress = progress,
+        onSubmit = viewModel::pair,
+        onRetry = viewModel::cancelPairing,
+        onDismiss = {
+            onClose()
+            viewModel.cancelPairing()
+        },
+    )
 }
 
 /**

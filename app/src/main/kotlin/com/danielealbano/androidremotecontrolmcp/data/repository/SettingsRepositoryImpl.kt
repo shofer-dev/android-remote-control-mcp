@@ -561,6 +561,16 @@ class SettingsRepositoryImpl
             updateConnectorConfig { it.copy(enrolmentCode = code) }
         }
 
+        override suspend fun updateConnectorPairing(
+            edgeHost: String,
+            code: String,
+        ) {
+            // One transform, so the connector's config watch sees a device that has BOTH facts or
+            // neither — never a host without the code that makes it usable. The gateway override is
+            // cleared in the same breath because it would otherwise win over the host just typed.
+            updateConnectorConfig { it.copy(edgeHost = edgeHost, gatewayUrl = "", enrolmentCode = code) }
+        }
+
         override suspend fun updateConnectorEnrolled(deviceId: String) {
             // The pairing code is single-use and spent by a successful enrolment — clear it so a
             // reconnect attaches with the durable device id rather than re-redeeming (which the

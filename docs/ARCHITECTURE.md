@@ -258,6 +258,32 @@ flowchart TB
 Settings are read at server start time. Changing settings while the server is
 running requires a restart (UI disables config editing when server is running).
 
+### Platform pairing flow
+
+The connector's configuration has two writers and one destination. A tethered or emulated device is
+configured by its host over adb; a remote phone is paired by its holder in the app, scanning the
+operator console's QR code (or typing the same two facts). Both end at the same
+`ConnectorConfig` in DataStore, and the connector picks it up by WATCHING that config rather than by
+being told — which is why neither path has a "now start it" step for the holder.
+
+```mermaid
+flowchart TB
+    Console["Operator console\nQR: justceo-enrol:v1?host=…&code=…"]
+    Host["Device host (tethered/emulated)"]
+    Console -->|"holder points the camera"| Scanner["PairingQrScanner\n(CameraX + ZXing core)"]
+    Scanner --> Decoder["QrPairingDecoder\n→ PairingInput.parsePairingUri"]
+    Console -->|"read aloud / copied"| Manual["ConnectorPairingDialog\nmanual fallback"]
+    Manual --> Norm["PairingInput\nnormalise + validate"]
+    Decoder --> VM["ConnectorViewModel.pair()"]
+    Norm --> VM
+    Host -->|"am broadcast ADB_CONFIGURE"| Adb["AdbConfigHandler"]
+    VM -->|"updateConnectorPairing(edgeHost, code)"| Repo["SettingsRepository"]
+    Adb -->|"updateConnectorEdgeHost / updateConnectorEnrolmentCode"| Repo
+    Repo --> DS[("DataStore\nConnectorConfig")]
+    DS -->|"connectorConfig flow\nreleases awaitConfigChange()"| Conn["PlatformConnector.run\ndial → enrol → attach"]
+    Conn -->|"ConnectorStatus"| Progress["ConnectorViewModel.pairingProgress\n→ the dialog"]
+```
+
 ---
 
 ## Permission Model
@@ -272,7 +298,7 @@ running requires a restart (UI disables config editing when server is running).
 | POST_NOTIFICATIONS       | Runtime (13+) | System dialog                      | Foreground notifications  |
 | Accessibility Service    | Special       | User enables in Settings           | UI introspection/actions  |
 | AccessibilityService takeScreenshot | Special | User enables in Settings | Screenshots (Android 11+) |
-| CAMERA                   | Runtime       | System dialog                      | Camera photo/video tools  |
+| CAMERA                   | Runtime       | System dialog                      | Camera photo/video tools; scanning the platform pairing code (refusing it falls back to typing the pairing in by hand) |
 | RECORD_AUDIO             | Runtime       | System dialog                      | Video recording with audio|
 | ACCESS_FINE_LOCATION     | Runtime       | System dialog                      | Device location tool      |
 | ACCESS_COARSE_LOCATION   | Runtime       | Declared (implied by FINE)         | Device location fallback  |

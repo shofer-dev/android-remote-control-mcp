@@ -15,6 +15,11 @@ work = "2.11.2"
 datastore = "1.2.0"
 documentfile = "1.1.0"
 camerax = "1.5.2"
+# ZXing core only — the pure-Java decoder, with no Android, AWT or Play Services dependency, so it
+# works identically in the foss and gms flavors. The camera itself is CameraX, already on the
+# classpath; zxing-android-embedded was rejected because it ships its own Activity and drives the
+# deprecated android.hardware.Camera API.
+zxing = "3.5.4"
 play-services-location = "21.3.0"
 osmdroid = "6.1.20"
 
@@ -104,6 +109,8 @@ camerax-core = { group = "androidx.camera", name = "camera-core", version.ref = 
 camerax-camera2 = { group = "androidx.camera", name = "camera-camera2", version.ref = "camerax" }
 camerax-lifecycle = { group = "androidx.camera", name = "camera-lifecycle", version.ref = "camerax" }
 camerax-video = { group = "androidx.camera", name = "camera-video", version.ref = "camerax" }
+camerax-view = { group = "androidx.camera", name = "camera-view", version.ref = "camerax" }
+zxing-core = { group = "com.google.zxing", name = "core", version.ref = "zxing" }
 
 # Google Play Services
 play-services-location = { group = "com.google.android.gms", name = "play-services-location", version.ref = "play-services-location" }

@@ -284,6 +284,25 @@ interface SettingsRepository {
     /** Updates the one-time enrolment (pairing) code. */
     suspend fun updateConnectorEnrolmentCode(code: String)
 
+    /**
+     * Applies a holder's pairing — the edge host and the one-time code they carried from the
+     * console — as ONE write, and clears any [updateConnectorGatewayUrl] override.
+     *
+     * Both halves are deliberate. It is one write because the two fields are one decision: written
+     * separately, the connector wakes on the first of them, reads a device that has a host and no
+     * code, and republishes "not enrolled" before the second arrives — a state the holder can see
+     * and cannot act on. And the override is cleared because it takes PRECEDENCE over the host:
+     * left in place it would silently dial somewhere other than the host the holder just typed,
+     * which is the failure this surface exists to prevent.
+     *
+     * The device id, the auto-start preference and the stop veto are untouched — this is a pairing,
+     * not a reset, and the veto is cleared by the explicit start that follows it.
+     */
+    suspend fun updateConnectorPairing(
+        edgeHost: String,
+        code: String,
+    )
+
     /** Persists the device id returned by `enrolled` and clears the spent enrolment code. */
     suspend fun updateConnectorEnrolled(deviceId: String)
 

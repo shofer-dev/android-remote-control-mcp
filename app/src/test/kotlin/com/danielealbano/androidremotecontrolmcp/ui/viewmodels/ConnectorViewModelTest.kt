@@ -342,6 +342,235 @@ class ConnectorViewModelTest {
     }
 
     @Nested
+    @DisplayName("pair")
+    inner class PairAction {
+        @Test
+        fun `a pairing is written as one config write, exactly as the adb broadcast writes it`() =
+            runTest {
+                val viewModel = newViewModel()
+
+                viewModel.pair("devices.justceo.ai", "PAIR-4KJ2")
+                testDispatcher.scheduler.advanceUntilIdle()
+
+                coVerify(exactly = 1) {
+                    settingsRepository.updateConnectorPairing("devices.justceo.ai", "PAIR-4KJ2")
+                }
+            }
+
+        @Test
+        fun `a pasted url and a spaced code are normalised before they are made durable`() =
+            runTest {
+                val viewModel = newViewModel()
+
+                viewModel.pair(" wss://Devices.JustCEO.ai/ws/device ", "PAIR 4KJ2\n")
+                testDispatcher.scheduler.advanceUntilIdle()
+
+                coVerify(exactly = 1) {
+                    settingsRepository.updateConnectorPairing("devices.justceo.ai", "PAIR4KJ2")
+                }
+            }
+
+        @Test
+        fun `the connector is started, so no Start tap is needed after pairing`() =
+            runTest {
+                val viewModel = newViewModel()
+
+                viewModel.pair("devices.justceo.ai", "PAIR-4KJ2")
+                testDispatcher.scheduler.advanceUntilIdle()
+
+                coVerify(exactly = 1) { connectorEnsure.start() }
+            }
+
+        @Test
+        fun `nothing is written when the code is missing`() =
+            runTest {
+                val viewModel = newViewModel()
+
+                viewModel.pair("devices.justceo.ai", "   ")
+                testDispatcher.scheduler.advanceUntilIdle()
+
+                coVerify(exactly = 0) { settingsRepository.updateConnectorPairing(any(), any()) }
+                coVerify(exactly = 0) { connectorEnsure.start() }
+            }
+
+        @Test
+        fun `nothing is written when the host is not a host`() =
+            runTest {
+                val viewModel = newViewModel()
+
+                viewModel.pair("not a host!", "PAIR-4KJ2")
+                testDispatcher.scheduler.advanceUntilIdle()
+
+                coVerify(exactly = 0) { settingsRepository.updateConnectorPairing(any(), any()) }
+            }
+
+        @Test
+        fun `pairing destroys nothing — not an identity, not a preference, not a hint`() =
+            runTest {
+                // Pairing is additive. Anything cleared here would be cleared behind the holder's
+                // back: unprovisioning is its own control, and the stop veto is lifted by the
+                // explicit start rather than by a write nobody asked for.
+                val viewModel = newViewModel()
+
+                viewModel.pair("devices.justceo.ai", "PAIR-4KJ2")
+                testDispatcher.scheduler.advanceUntilIdle()
+
+                coVerify(exactly = 0) { settingsRepository.clearConnectorEnrolment() }
+                coVerify(exactly = 0) { settingsRepository.clearConnectorIdentity() }
+                coVerify(exactly = 0) { settingsRepository.updateConnectorAutoStart(any()) }
+                coVerify(exactly = 0) { settingsRepository.updateConnectorStoppedByUser(any()) }
+                coVerify(exactly = 0) { settingsRepository.dismissConnectorKeepAliveHint() }
+                coVerify(exactly = 0) { provisioning.unprovision() }
+            }
+    }
+
+    @Nested
+    @DisplayName("buildPairingProgress")
+    inner class BuildPairingProgress {
+        @Test
+        fun `no attempt reports nothing`() {
+            val progress =
+                ConnectorViewModel.buildPairingProgress(
+                    status = ConnectorStatus.NotEnrolled,
+                    isEnrolled = false,
+                    startedAtMillis = null,
+                    nowMillis = 10_000,
+                )
+
+            assertEquals(PairingProgress.Idle, progress)
+        }
+
+        @Test
+        fun `the handshake is reported in the connector's own words`() {
+            val progress =
+                ConnectorViewModel.buildPairingProgress(
+                    status = ConnectorStatus.Enrolling,
+                    isEnrolled = false,
+                    startedAtMillis = 0,
+                    nowMillis = 500,
+                )
+
+            assertEquals(PairingProgress.InProgress(ConnectorStatus.Enrolling.notificationLabel), progress)
+        }
+
+        @Test
+        fun `enrolled and attached is the only success`() {
+            val progress =
+                ConnectorViewModel.buildPairingProgress(
+                    status = ConnectorStatus.Connected(attachedSinceMillis = 0, lastServerHeartbeatMillis = 0),
+                    isEnrolled = true,
+                    startedAtMillis = 0,
+                    nowMillis = 1_000,
+                )
+
+            assertEquals(PairingProgress.Paired, progress)
+        }
+
+        @Test
+        fun `attached without an identity is not paired yet`() {
+            val progress =
+                ConnectorViewModel.buildPairingProgress(
+                    status = ConnectorStatus.Connected(attachedSinceMillis = 0, lastServerHeartbeatMillis = 0),
+                    isEnrolled = false,
+                    startedAtMillis = 0,
+                    nowMillis = 1_000,
+                )
+
+            assertTrue(progress is PairingProgress.InProgress)
+        }
+
+        @Test
+        fun `the PREVIOUS attempt's refusal is not shown as this one's`() {
+            // The case this window exists for: a holder fetches a fresh code precisely BECAUSE the
+            // connector is sitting in EnrolmentRejected, so the stale status is still on the flow
+            // when the new pairing is submitted.
+            val progress =
+                ConnectorViewModel.buildPairingProgress(
+                    status = ConnectorStatus.EnrolmentRejected("that code expired"),
+                    isEnrolled = false,
+                    startedAtMillis = 0,
+                    nowMillis = 100,
+                )
+
+            assertEquals(PairingProgress.Starting, progress)
+        }
+
+        @Test
+        fun `a refusal that outlives the settle window is reported with the platform's reason`() {
+            val progress =
+                ConnectorViewModel.buildPairingProgress(
+                    status = ConnectorStatus.EnrolmentRejected("that pairing code has already been used"),
+                    isEnrolled = false,
+                    startedAtMillis = 0,
+                    nowMillis = 5_000,
+                )
+
+            assertEquals(PairingProgress.Refused("that pairing code has already been used"), progress)
+        }
+
+        @Test
+        fun `a connector that never moved is a failure, not a spinner forever`() {
+            val progress =
+                ConnectorViewModel.buildPairingProgress(
+                    status = ConnectorStatus.Stopped,
+                    isEnrolled = false,
+                    startedAtMillis = 0,
+                    nowMillis = 5_000,
+                )
+
+            assertEquals(PairingProgress.Refused(null), progress)
+        }
+
+        @Test
+        fun `a connector that still says not-enrolled after the window did not take the code`() {
+            val progress =
+                ConnectorViewModel.buildPairingProgress(
+                    status = ConnectorStatus.NotEnrolled,
+                    isEnrolled = false,
+                    startedAtMillis = 0,
+                    nowMillis = 5_000,
+                )
+
+            assertEquals(PairingProgress.Refused(null), progress)
+        }
+    }
+
+    @Nested
+    @DisplayName("cancelPairing")
+    inner class CancelPairing {
+        @Test
+        fun `forgetting the attempt touches no configuration`() =
+            runTest {
+                val viewModel = newViewModel()
+
+                viewModel.pair("devices.justceo.ai", "PAIR-4KJ2")
+                testDispatcher.scheduler.advanceUntilIdle()
+                viewModel.cancelPairing()
+                testDispatcher.scheduler.advanceUntilIdle()
+
+                // The pairing itself stays written: closing the dialog is a decision about
+                // watching, not about pairing.
+                coVerify(exactly = 1) { settingsRepository.updateConnectorPairing(any(), any()) }
+                coVerify(exactly = 0) { settingsRepository.clearConnectorEnrolment() }
+            }
+
+        @Test
+        fun `the surface returns to its form`() =
+            runTest {
+                val viewModel = newViewModel()
+
+                viewModel.pairingProgress.test {
+                    assertEquals(PairingProgress.Idle, awaitItem())
+                    viewModel.pair("devices.justceo.ai", "PAIR-4KJ2")
+                    assertTrue(awaitItem() !is PairingProgress.Idle)
+                    viewModel.cancelPairing()
+                    assertEquals(PairingProgress.Idle, awaitItem())
+                    cancelAndIgnoreRemainingEvents()
+                }
+            }
+    }
+
+    @Nested
     @DisplayName("keepAliveHintVisible")
     inner class KeepAliveHint {
         @Test
