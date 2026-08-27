@@ -1,0 +1,12 @@
+#!/usr/bin/env bash
+# Pre-push gate: the JVM unit tests must pass before anything leaves this
+# machine. Runs ONE variant (gmsDebug) rather than `make test-unit`, which runs
+# the same JUnit sources four times (foss/gms × debug/release) — the flavors
+# differ in packaging, not in the code under test. No device, emulator or
+# network is needed: Gradle resolves from its cache after the first run.
+# Activate once: git config core.hooksPath .githooks
+set -euo pipefail
+
+cd "$(git rev-parse --show-toplevel)"
+echo "[pre-push] android-app unit tests → ./gradlew :app:testGmsDebugUnitTest"
+exec ./gradlew --console=plain -q :app:testGmsDebugUnitTest </dev/null

@@ -8,6 +8,7 @@ Thank you for your interest in contributing to Android Remote Control MCP!
 2. Create a feature branch: `git checkout -b feat/your-feature`
 3. Make your changes following the project conventions
 4. Ensure all checks pass: `make lint && make test-unit && make build`
+   (`git push` also runs the JVM unit tests through `.githooks/pre-push` and refuses the push if they fail — activate once per clone with `git config core.hooksPath .githooks`)
 5. Commit with descriptive messages (e.g., `feat: add new MCP tool for ...`)
 6. Open a pull request
 
