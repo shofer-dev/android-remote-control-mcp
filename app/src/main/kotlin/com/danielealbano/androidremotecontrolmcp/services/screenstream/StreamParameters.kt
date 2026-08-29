@@ -9,7 +9,7 @@ import java.nio.ByteOrder
  *
  * The viewer sends its request as a 36-byte binary control message on the stream socket — the same
  * message it sends to the two adb-reachable backends, forwarded to this app verbatim by
- * device-gateway. Honouring it rather than inventing our own settings is what makes the operator's
+ * phone-gateway. Honouring it rather than inventing our own settings is what makes the operator's
  * quality selector work identically on all three device classes.
  *
  * Only the fields this backend can act on are modelled. The message also carries a crop rectangle,

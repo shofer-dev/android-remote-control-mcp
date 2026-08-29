@@ -22,11 +22,11 @@ import org.junit.jupiter.api.Test
 class QrPairingDecoderTest {
     @Test
     fun `a pairing link rendered as a QR code is read back`() {
-        val frame = qrFrame("justceo-enrol:v1?host=devices.justceo.ai&code=PAIR-4KJ2")
+        val frame = qrFrame("justceo-enrol:v1?host=phones.justceo.ai&code=PAIR-4KJ2")
 
         val pairing = QrPairingDecoder.decode(frame.luminance, frame.width, frame.width, frame.height)
 
-        assertEquals("devices.justceo.ai", pairing?.edgeHost)
+        assertEquals("phones.justceo.ai", pairing?.edgeHost)
         assertEquals("PAIR-4KJ2", pairing?.code)
     }
 
@@ -34,7 +34,7 @@ class QrPairingDecoderTest {
     fun `a padded frame decodes, because a camera row is wider than the image`() {
         // A camera's Y plane is free to pad each row for alignment; the decoder is told the stride
         // and crops, so the padding must not shift the image.
-        val frame = qrFrame("justceo-enrol:v1?host=devices.justceo.ai&code=PAIR-4KJ2")
+        val frame = qrFrame("justceo-enrol:v1?host=phones.justceo.ai&code=PAIR-4KJ2")
         val stride = frame.width + PAD_BYTES
         val padded = ByteArray(stride * frame.height) { WHITE }
         for (row in 0 until frame.height) {
@@ -48,7 +48,7 @@ class QrPairingDecoderTest {
 
         val pairing = QrPairingDecoder.decode(padded, stride, frame.width, frame.height)
 
-        assertEquals("devices.justceo.ai", pairing?.edgeHost)
+        assertEquals("phones.justceo.ai", pairing?.edgeHost)
     }
 
     @Test

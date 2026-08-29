@@ -36,7 +36,7 @@ import javax.inject.Singleton
  * `NoSuchAlgorithmException: no such algorithm: Ed25519 for provider AndroidKeyStore`. That
  * must NOT be a hard failure: the platform does not verify the attestation chain at redeem
  * (it is `omitempty` and unchecked) and it models a per-device attestation TIER
- * (`docs/phones/android_support.md` §3/§6.2), so a software key with `tier=software` is the
+ * (`docs/phones/phone_support.md` §3/§6.2), so a software key with `tier=software` is the
  * intended path for such devices — org policy, not a crash, decides if that is acceptable.
  *
  * ── Selection (deterministic, stable across runs) ──────────────────────────────────────
@@ -47,7 +47,7 @@ import javax.inject.Singleton
  *
  * Once a device is on software (its hardware attempt failed and the alias is absent), the
  * persisted key is found first on the next run, so the identity NEVER rotates mid-life — the
- * `device_id`↔pubkey binding established at enrolment stays valid.
+ * `phone_id`↔pubkey binding established at enrolment stays valid.
  *
  * ── Software key at rest ───────────────────────────────────────────────────────────────
  * A software private key cannot live in the AndroidKeyStore, so it is persisted in the app's

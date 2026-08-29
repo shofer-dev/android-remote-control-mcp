@@ -132,8 +132,8 @@ private fun ConnectorDetails(state: ConnectorUiState) {
         value = state.edgeHost.ifBlank { stringResource(R.string.connector_card_unknown) },
     )
     DetailRow(
-        label = stringResource(R.string.connector_card_device),
-        value = state.deviceIdShort.ifBlank { stringResource(R.string.connector_card_unknown) },
+        label = stringResource(R.string.connector_card_phone),
+        value = state.phoneIdShort.ifBlank { stringResource(R.string.connector_card_unknown) },
     )
     DetailRow(
         label = stringResource(R.string.connector_card_enrolled),
@@ -305,8 +305,8 @@ private fun ConnectorStatusCardConnectedPreview() {
             state =
                 ConnectorUiState(
                     status = ConnectorStatus.Connected(attachedSinceMillis = 0, lastServerHeartbeatMillis = 0),
-                    deviceIdShort = "7f3ab21c",
-                    edgeHost = "devices.justceo.ai",
+                    phoneIdShort = "7f3ab21c",
+                    edgeHost = "phones.justceo.ai",
                     isEnrolled = true,
                     lastServerHeartbeatAgoMillis = 3_000,
                     attachUptimeMillis = 3_725_000,
@@ -326,8 +326,8 @@ private fun ConnectorStatusCardStoppedByUserPreview() {
             state =
                 ConnectorUiState(
                     status = ConnectorStatus.Stopped,
-                    deviceIdShort = "7f3ab21c",
-                    edgeHost = "devices.justceo.ai",
+                    phoneIdShort = "7f3ab21c",
+                    edgeHost = "phones.justceo.ai",
                     isEnrolled = true,
                     stoppedByUser = true,
                 ),
@@ -350,8 +350,8 @@ private fun ConnectorStatusCardHaltedPreview() {
             state =
                 ConnectorUiState(
                     status = ConnectorStatus.AttachRejected("credential-service refused: unknown-device"),
-                    deviceIdShort = "7f3ab21c",
-                    edgeHost = "devices.justceo.ai",
+                    phoneIdShort = "7f3ab21c",
+                    edgeHost = "phones.justceo.ai",
                     isEnrolled = true,
                 ),
             onStart = {},

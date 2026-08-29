@@ -13,7 +13,7 @@ import javax.inject.Singleton
  * loopback MCP hop (`docs/phones/android_remote_control.md` §6.4).
  *
  * The point is PROXIMITY, not sovereignty. The platform decides — the snapshot is authored
- * on the settings plane and shipped by device-gateway — and this class refuses; being the
+ * on the settings plane and shipped by phone-gateway — and this class refuses; being the
  * layer closest to the act is what a dispatcher bug or a prompt-injected agent cannot route
  * around. The app holds no policy of its own: everything here either came from the snapshot
  * or is one of the two structural refusals (§6.4, [StructuralDenylist]) that exist precisely
@@ -302,7 +302,7 @@ class PolicyEnforcer
              * The allowlist rule, extracted as pure logic because its two postures fail in
              * opposite directions and both are deliberate:
              *
-             * - `device-list` — the allowlist IS the gate, so an EMPTY list means the org has
+             * - `on-phone-list` — the allowlist IS the gate, so an EMPTY list means the org has
              *   authored no restriction and every app is drivable. This is the default, and
              *   it is why turning the capability on does not brick a fleet.
              * - `allowlist-only` — a package must be named to be driven, so an empty list
@@ -320,7 +320,7 @@ class PolicyEnforcer
                 packageName: String,
             ): Boolean =
                 when (snapshot.drivableAppPosture) {
-                    DevicePolicy.Posture.DEVICE_LIST -> {
+                    DevicePolicy.Posture.ON_PHONE_LIST -> {
                         snapshot.drivableApps.isEmpty() || snapshot.drivableApps.contains(packageName)
                     }
 

@@ -210,7 +210,7 @@ class PlatformScreenStreamController
         private companion object {
             const val TAG = "ScreenStreamController"
 
-            /** Wire codes, matching `device-gateway/internal/protocol`. */
+            /** Wire codes, matching `phone-gateway/internal/protocol`. */
             const val STREAM_UNSUPPORTED = "stream-unsupported"
             const val STREAM_BUSY = "stream_busy"
 

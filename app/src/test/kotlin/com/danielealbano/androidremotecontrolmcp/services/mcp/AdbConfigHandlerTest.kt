@@ -71,14 +71,14 @@ class AdbConfigHandlerTest {
             val intent = configureIntent()
             every {
                 intent.getStringExtra(AdbConfigHandler.EXTRA_GATEWAY_URL)
-            } returns "  ws://device-gateway.justceo.svc.cluster.local:8025/ws/device  "
+            } returns "  ws://phone-gateway.justceo.svc.cluster.local:8025/ws/phone  "
             val context = mockk<Context>(relaxed = true)
 
             handler.handle(context, intent)
 
             coVerify(exactly = 1) {
                 settingsRepository.updateConnectorGatewayUrl(
-                    "ws://device-gateway.justceo.svc.cluster.local:8025/ws/device",
+                    "ws://phone-gateway.justceo.svc.cluster.local:8025/ws/phone",
                 )
             }
         }

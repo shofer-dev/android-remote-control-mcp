@@ -188,7 +188,7 @@ class ConnectorLivenessTest {
     }
 
     private companion object {
-        /** device-gateway's `HEARTBEAT_LAPSE` default, mirrored here so the margin is asserted. */
+        /** phone-gateway's `HEARTBEAT_LAPSE` default, mirrored here so the margin is asserted. */
         const val GATEWAY_HEARTBEAT_LAPSE_MS = 90_000L
     }
 }

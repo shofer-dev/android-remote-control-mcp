@@ -54,7 +54,7 @@ class PolicyEnforcerTest {
 
     private fun openPolicy(
         activeHours: String = "",
-        posture: String = DevicePolicy.Posture.DEVICE_LIST,
+        posture: String = DevicePolicy.Posture.ON_PHONE_LIST,
         apps: List<String> = emptyList(),
         rate: RateLimit = RateLimit(),
         paused: Boolean = false,
@@ -259,9 +259,9 @@ class PolicyEnforcerTest {
     // ── the drivable-app allowlist ────────────────────────────────────────────────────
 
     @Test
-    fun `an empty allowlist under the device-list posture restricts nothing`() {
+    fun `an empty allowlist under the on-phone-list posture restricts nothing`() {
         val enforcer = PolicyEnforcer(FakeEnvironment())
-        enforcer.apply(openPolicy(posture = DevicePolicy.Posture.DEVICE_LIST, apps = emptyList()))
+        enforcer.apply(openPolicy(posture = DevicePolicy.Posture.ON_PHONE_LIST, apps = emptyList()))
         assertEquals(PolicyDecision.Allowed, enforcer.evaluate(toolCall("android_tap")))
     }
 
@@ -485,8 +485,8 @@ class PolicyEnforcerTest {
 
     @Test
     fun `app drivability is decided by posture and list alone`() {
-        val deviceList = openPolicy(posture = DevicePolicy.Posture.DEVICE_LIST)
-        assertTrue(PolicyEnforcer.isAppDrivable(deviceList, "anything"))
+        val onPhoneList = openPolicy(posture = DevicePolicy.Posture.ON_PHONE_LIST)
+        assertTrue(PolicyEnforcer.isAppDrivable(onPhoneList, "anything"))
 
         val allowlistOnly = openPolicy(posture = DevicePolicy.Posture.ALLOWLIST_ONLY, apps = listOf("com.a"))
         assertTrue(PolicyEnforcer.isAppDrivable(allowlistOnly, "com.a"))

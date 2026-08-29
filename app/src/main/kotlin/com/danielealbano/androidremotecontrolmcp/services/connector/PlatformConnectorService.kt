@@ -36,7 +36,7 @@ import javax.inject.Inject
 
 /**
  * Foreground service that hosts the [PlatformConnector] so Android keeps the outbound
- * `/ws/device` connection alive. Mirrors [com.danielealbano.androidremotecontrolmcp.services.mcp.McpServerService]'s
+ * `/ws/phone` connection alive. Mirrors [com.danielealbano.androidremotecontrolmcp.services.mcp.McpServerService]'s
  * shape (specialUse FGS, companion status flow) and [com.danielealbano.androidremotecontrolmcp.services.channel.EventChannelService]'s
  * config-driven lifecycle.
  *

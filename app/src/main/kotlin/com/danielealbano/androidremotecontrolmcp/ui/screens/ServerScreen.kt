@@ -131,7 +131,7 @@ fun ServerScreen(
  *
  * The two have DIFFERENT lifetimes, and that is the point. The prompt is gone the moment the phone
  * holds an identity, because there is nothing left to prompt for — but the dialog is not, or a
- * pairing would disappear at the exact instant it succeeded: `deviceId` is persisted when the
+ * pairing would disappear at the exact instant it succeeded: `phoneId` is persisted when the
  * platform answers `enrolled`, one step BEFORE the attach, so tying the dialog to the same
  * condition would take it off screen mid-handshake and never show the holder that it worked.
  *

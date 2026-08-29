@@ -3,7 +3,7 @@ package com.danielealbano.androidremotecontrolmcp.services.connector.crypto
 import kotlinx.serialization.json.JsonElement
 
 /**
- * The device's cryptographic identity for the `/ws/device` handshake.
+ * The device's cryptographic identity for the `/ws/phone` handshake.
  *
  * Implementations own an ed25519 keypair whose private half is non-exportable and,
  * where the hardware allows, generated inside the TEE/StrongBox. The public key, the
@@ -42,7 +42,7 @@ interface DeviceIdentity {
      * lives in the AndroidKeyStore (TEE/StrongBox), [TIER_SOFTWARE] when it is a bundled
      * software key. Reported honestly — the platform records the tier and org policy decides
      * whether software is acceptable; it does not refuse enrolment on tier
-     * (`docs/phones/android_support.md` §3/§6.2).
+     * (`docs/phones/phone_support.md` §3/§6.2).
      */
     fun attestationTier(): String
 
@@ -53,8 +53,8 @@ interface DeviceIdentity {
      * device record, or the holder unprovisioned the phone
      * ([com.danielealbano.androidremotecontrolmcp.services.connector.ConnectorProvisioning]). It
      * is deliberately destructive and deliberately NOT part of the ordinary reconnect path: the
-     * `device_id`↔pubkey binding established at enrolment must survive every transient failure,
-     * so a key that outlives its device id would enrol the phone again under a public key the
+     * `phone_id`↔pubkey binding established at enrolment must survive every transient failure,
+     * so a key that outlives its phone id would enrol the phone again under a public key the
      * platform has already seen bound to a deleted device.
      *
      * Implementations must leave the identity in the same state a fresh install has: no keystore

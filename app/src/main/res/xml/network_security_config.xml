@@ -6,7 +6,7 @@
 
   The ONE exception is the emulated device class, which runs this app inside the
   cluster in an egress-locked pod. It cannot reach the public wss edge — only the
-  INTERNAL device-gateway service. It does not dial that service directly, either:
+  INTERNAL phone-gateway service. It does not dial that service directly, either:
   the emulator's QEMU slirp user-mode NAT cannot carry a working WebSocket exchange
   to a kube-proxy ClusterIP (the TCP handshake completes, then the data path breaks),
   so the in-pod supervisor wires an `adb reverse` tunnel and the connector dials a

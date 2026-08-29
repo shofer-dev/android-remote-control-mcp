@@ -42,7 +42,7 @@ import javax.inject.Inject
  */
 data class ConnectorUiState(
     val status: ConnectorStatus = ConnectorStatus.Stopped,
-    val deviceIdShort: String = "",
+    val phoneIdShort: String = "",
     val edgeHost: String = "",
     val isEnrolled: Boolean = false,
     val lastServerHeartbeatAgoMillis: Long? = null,
@@ -241,8 +241,8 @@ class ConnectorViewModel
             private const val TICK_INTERVAL_MS = 1_000L
             private const val FLOW_TIMEOUT_MS = 5_000L
 
-            /** How much of the device UUID the card shows; enough to tell two devices apart. */
-            private const val DEVICE_ID_PREFIX_LENGTH = 8
+            /** How much of the phone UUID the card shows; enough to tell two phones apart. */
+            private const val PHONE_ID_PREFIX_LENGTH = 8
 
             /**
              * The pure projection, extracted so every rule it encodes — grounding a stale link,
@@ -257,7 +257,7 @@ class ConnectorViewModel
                 val grounded = ConnectorLiveness.ground(status, nowMillis)
                 return ConnectorUiState(
                     status = grounded,
-                    deviceIdShort = shortenDeviceId(config.deviceId),
+                    phoneIdShort = shortenPhoneId(config.phoneId),
                     edgeHost = config.dialHost,
                     isEnrolled = config.isEnrolled,
                     lastServerHeartbeatAgoMillis = attached?.let { nowMillis - it.lastServerHeartbeatMillis },
@@ -338,7 +338,7 @@ class ConnectorViewModel
                 }
             }
 
-            /** The leading segment of the platform's device UUID, or empty when not enrolled. */
-            internal fun shortenDeviceId(deviceId: String): String = deviceId.take(DEVICE_ID_PREFIX_LENGTH)
+            /** The leading segment of the platform's phone UUID, or empty when not enrolled. */
+            internal fun shortenPhoneId(phoneId: String): String = phoneId.take(PHONE_ID_PREFIX_LENGTH)
         }
     }

@@ -272,11 +272,11 @@ interface SettingsRepository {
     /** Returns the current platform-connector configuration as a one-shot read. */
     suspend fun getConnectorConfig(): ConnectorConfig
 
-    /** Updates the device-edge host (e.g. `devices.justceo.ai`). */
+    /** Updates the device-edge host (e.g. `phones.justceo.ai`). */
     suspend fun updateConnectorEdgeHost(edgeHost: String)
 
     /**
-     * Updates the full gateway URL override — a `ws://…/ws/device` or `wss://…/ws/device` URL used
+     * Updates the full gateway URL override — a `ws://…/ws/phone` or `wss://…/ws/phone` URL used
      * verbatim in preference to the [updateConnectorEdgeHost] fallback. Blank means "no override".
      */
     suspend fun updateConnectorGatewayUrl(gatewayUrl: String)
@@ -295,7 +295,7 @@ interface SettingsRepository {
      * left in place it would silently dial somewhere other than the host the holder just typed,
      * which is the failure this surface exists to prevent.
      *
-     * The device id, the auto-start preference and the stop veto are untouched — this is a pairing,
+     * The phone id, the auto-start preference and the stop veto are untouched — this is a pairing,
      * not a reset, and the veto is cleared by the explicit start that follows it.
      */
     suspend fun updateConnectorPairing(
@@ -303,11 +303,11 @@ interface SettingsRepository {
         code: String,
     )
 
-    /** Persists the device id returned by `enrolled` and clears the spent enrolment code. */
-    suspend fun updateConnectorEnrolled(deviceId: String)
+    /** Persists the phone id returned by `enrolled` and clears the spent enrolment code. */
+    suspend fun updateConnectorEnrolled(phoneId: String)
 
     /**
-     * Discards the stored device id, KEEPING any enrolment code. This is the self-heal write: the
+     * Discards the stored phone id, KEEPING any enrolment code. This is the self-heal write: the
      * platform has told the device its identity does not exist, and a pairing code that was
      * delivered while the dead id was still held is exactly what must survive to provision the
      * phone again on the very next dial.
@@ -315,7 +315,7 @@ interface SettingsRepository {
     suspend fun clearConnectorIdentity()
 
     /**
-     * Discards the stored device id AND any unspent enrolment code — the holder's deliberate
+     * Discards the stored phone id AND any unspent enrolment code — the holder's deliberate
      * unprovision. The dial target and the auto-start preference are left alone: they are how the
      * phone is configured, not who it is, and a rack operator re-pairing the same handset needs
      * them intact.

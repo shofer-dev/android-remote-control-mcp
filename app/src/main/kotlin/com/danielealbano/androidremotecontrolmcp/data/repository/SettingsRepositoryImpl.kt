@@ -571,23 +571,23 @@ class SettingsRepositoryImpl
             updateConnectorConfig { it.copy(edgeHost = edgeHost, gatewayUrl = "", enrolmentCode = code) }
         }
 
-        override suspend fun updateConnectorEnrolled(deviceId: String) {
+        override suspend fun updateConnectorEnrolled(phoneId: String) {
             // The pairing code is single-use and spent by a successful enrolment — clear it so a
-            // reconnect attaches with the durable device id rather than re-redeeming (which the
+            // reconnect attaches with the durable phone id rather than re-redeeming (which the
             // platform would refuse as code-unusable).
             //
             // A fresh enrolment also clears an earlier explicit stop: the device has just been
             // paired to a platform, which is a stronger statement of intent than whatever the
             // previous holder decided about the previous pairing.
-            updateConnectorConfig { it.copy(deviceId = deviceId, enrolmentCode = "", stoppedByUser = false) }
+            updateConnectorConfig { it.copy(phoneId = phoneId, enrolmentCode = "", stoppedByUser = false) }
         }
 
         override suspend fun clearConnectorIdentity() {
-            updateConnectorConfig { it.copy(deviceId = "") }
+            updateConnectorConfig { it.copy(phoneId = "") }
         }
 
         override suspend fun clearConnectorEnrolment() {
-            updateConnectorConfig { it.copy(deviceId = "", enrolmentCode = "") }
+            updateConnectorConfig { it.copy(phoneId = "", enrolmentCode = "") }
         }
 
         override suspend fun updateConnectorAutoStart(enabled: Boolean) {

@@ -17,8 +17,8 @@ import com.danielealbano.androidremotecontrolmcp.services.storage.StorageLocatio
  * Hilt's [dagger.hilt.android.AndroidEntryPoint] injection lifecycle.
  *
  * Platform-connector extras on `ADB_CONFIGURE`:
- * - `edge_host` — the device-edge host for the public path (`wss://<host>/ws/device`).
- * - `gateway_url` — a full `ws://…/ws/device` or `wss://…/ws/device` URL used verbatim, taking
+ * - `edge_host` — the device-edge host for the public path (`wss://<host>/ws/phone`).
+ * - `gateway_url` — a full `ws://…/ws/phone` or `wss://…/ws/phone` URL used verbatim, taking
  *   precedence over `edge_host`. This is the in-cluster path: an emulated device in an
  *   egress-locked pod reaches its internal gateway service over plain `ws://` with an explicit
  *   port, which the `edge_host` form cannot express.

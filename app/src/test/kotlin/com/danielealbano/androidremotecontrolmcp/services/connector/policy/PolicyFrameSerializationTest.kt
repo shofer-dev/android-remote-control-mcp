@@ -10,7 +10,7 @@ import org.junit.jupiter.api.Assertions.assertTrue
 import org.junit.jupiter.api.Test
 
 /**
- * The `policy` frame's wire shape, pinned against the JSON `device-gateway` actually emits
+ * The `policy` frame's wire shape, pinned against the JSON `phone-gateway` actually emits
  * (`internal/protocol` `PolicySnapshot` + `internal/policy`). Field spelling is the contract:
  * a renamed key does not fail, it silently decodes to a default — and a default here means a
  * device that thinks it may drive anything at any hour.
@@ -54,7 +54,7 @@ class PolicyFrameSerializationTest {
         val json =
             """
             {"type":"policy","policy":{"version":"a","issued_at":"t","active_hours":"",
-            "drivable_app_posture":"device-list","drivable_apps":[],
+            "drivable_app_posture":"on-phone-list","drivable_apps":[],
             "rate_limit":{"commands":0,"window_seconds":0},"paused":false}}
             """.trimIndent()
         val policy = ConnectorJson.decodeFromString(Frame.serializer(), json).policy
@@ -70,7 +70,7 @@ class PolicyFrameSerializationTest {
         val json =
             """
             {"type":"policy","policy":{"version":"a","issued_at":"t","active_hours":"08:00-22:00",
-            "drivable_app_posture":"device-list","drivable_apps":[],
+            "drivable_app_posture":"on-phone-list","drivable_apps":[],
             "rate_limit":{"commands":1,"window_seconds":1},"paused":false,"something_new":42}}
             """.trimIndent()
         val policy = ConnectorJson.decodeFromString(Frame.serializer(), json).policy

@@ -16,7 +16,7 @@ class ConnectorConfigTest {
         fun `a device id is what makes a device enrolled`() {
             assertFalse(ConnectorConfig().isEnrolled)
             assertFalse(ConnectorConfig(enrolmentCode = "ABC123").isEnrolled)
-            assertTrue(ConnectorConfig(deviceId = "7f3ab21c-9d44").isEnrolled)
+            assertTrue(ConnectorConfig(phoneId = "7f3ab21c-9d44").isEnrolled)
         }
     }
 
@@ -25,25 +25,25 @@ class ConnectorConfigTest {
     inner class DialHost {
         @Test
         fun `the edge host is shown when no gateway url is set`() {
-            assertEquals("devices.justceo.ai", ConnectorConfig(edgeHost = "devices.justceo.ai").dialHost)
+            assertEquals("phones.justceo.ai", ConnectorConfig(edgeHost = "phones.justceo.ai").dialHost)
         }
 
         @Test
         fun `a gateway url wins and is reduced to its host`() {
             val config =
                 ConnectorConfig(
-                    edgeHost = "devices.justceo.ai",
-                    gatewayUrl = "ws://device-gateway.justceo.svc:8080/ws/device",
+                    edgeHost = "phones.justceo.ai",
+                    gatewayUrl = "ws://phone-gateway.justceo.svc:8080/ws/phone",
                 )
 
-            assertEquals("device-gateway.justceo.svc", config.dialHost)
+            assertEquals("phone-gateway.justceo.svc", config.dialHost)
         }
 
         @Test
         fun `a wss url is reduced the same way`() {
             assertEquals(
-                "devices.justceo.ai",
-                ConnectorConfig(gatewayUrl = "wss://devices.justceo.ai/ws/device").dialHost,
+                "phones.justceo.ai",
+                ConnectorConfig(gatewayUrl = "wss://phones.justceo.ai/ws/phone").dialHost,
             )
         }
 
@@ -57,7 +57,7 @@ class ConnectorConfigTest {
 
         @Test
         fun `a url with no authority falls back to the raw value`() {
-            assertEquals("ws:///ws/device", ConnectorConfig(gatewayUrl = "ws:///ws/device").dialHost)
+            assertEquals("ws:///ws/phone", ConnectorConfig(gatewayUrl = "ws:///ws/phone").dialHost)
         }
 
         @Test
@@ -73,8 +73,8 @@ class ConnectorConfigTest {
         fun `a config round-trips through json`() {
             val config =
                 ConnectorConfig(
-                    edgeHost = "devices.justceo.ai",
-                    deviceId = "7f3ab21c-9d44",
+                    edgeHost = "phones.justceo.ai",
+                    phoneId = "7f3ab21c-9d44",
                     autoStart = true,
                 )
 
@@ -87,8 +87,8 @@ class ConnectorConfigTest {
             // is exactly what persisting it as part of the connector config buys.
             val config =
                 ConnectorConfig(
-                    edgeHost = "devices.justceo.ai",
-                    deviceId = "7f3ab21c-9d44",
+                    edgeHost = "phones.justceo.ai",
+                    phoneId = "7f3ab21c-9d44",
                     autoStart = true,
                     stoppedByUser = true,
                 )
@@ -98,7 +98,7 @@ class ConnectorConfigTest {
 
         @Test
         fun `a config persisted before the veto existed reads as not stopped`() {
-            val legacy = """{"edgeHost":"devices.justceo.ai","deviceId":"7f3ab21c","autoStart":true}"""
+            val legacy = """{"edgeHost":"phones.justceo.ai","phoneId":"7f3ab21c","autoStart":true}"""
 
             assertEquals(false, ConnectorConfig.fromJsonOrDefault(legacy).stoppedByUser)
         }

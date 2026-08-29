@@ -442,7 +442,7 @@ Each storage location has per-location permission flags controlling what MCP too
 ### How a phone is paired with the platform
 
 Pairing gives the phone the two facts it needs to dial and enrol: the **edge host**
-(`wss://<host>/ws/device`) and a **one-time enrolment code**. There are two ways in, and they end
+(`wss://<host>/ws/phone`) and a **one-time enrolment code**. There are two ways in, and they end
 at the same durable write:
 
 | device class | who supplies the two facts | path |

@@ -40,7 +40,7 @@ class FrameSerializationTest {
         val k = keys(json)
         assertEquals(setOf("type", "code", "pubkey", "app_version"), k)
         assertTrue(json.contains("\"app_version\":\"1.4.2\""))
-        // omitempty: no null device_id / terms_hash / signature leaked
+        // omitempty: no null phone_id / terms_hash / signature leaked
         assertFalse(json.contains("null"))
     }
 
@@ -51,9 +51,9 @@ class FrameSerializationTest {
     }
 
     @Test
-    fun `attach frame carries device_id and app_version`() {
-        val json = encode(Frame(type = FrameType.ATTACH, deviceId = "uuid-1", appVersion = "1.4.2"))
-        assertEquals(setOf("type", "device_id", "app_version"), keys(json))
+    fun `attach frame carries phone_id and app_version`() {
+        val json = encode(Frame(type = FrameType.ATTACH, phoneId = "uuid-1", appVersion = "1.4.2"))
+        assertEquals(setOf("type", "phone_id", "app_version"), keys(json))
     }
 
     @Test
@@ -62,7 +62,7 @@ class FrameSerializationTest {
         // the whole way to say "cannot". An empty array would be a second spelling of the same
         // answer, so the omitempty contract has to hold here or a phone could appear to be making
         // a claim it is not.
-        val json = encode(Frame(type = FrameType.ATTACH, deviceId = "uuid-1", appVersion = "1.4.2", capabilities = null))
+        val json = encode(Frame(type = FrameType.ATTACH, phoneId = "uuid-1", appVersion = "1.4.2", capabilities = null))
         assertFalse(json.contains("capabilities"))
     }
 
@@ -72,12 +72,12 @@ class FrameSerializationTest {
             encode(
                 Frame(
                     type = FrameType.ATTACH,
-                    deviceId = "uuid-1",
+                    phoneId = "uuid-1",
                     appVersion = "1.4.2",
                     capabilities = listOf(Capability.SCREEN_STREAM),
                 ),
             )
-        assertEquals(setOf("type", "device_id", "app_version", "capabilities"), keys(json))
+        assertEquals(setOf("type", "phone_id", "app_version", "capabilities"), keys(json))
         assertTrue(json.contains("\"capabilities\":[\"screen_stream\"]"))
     }
 
@@ -167,10 +167,10 @@ class FrameSerializationTest {
         val frame =
             ConnectorJson.decodeFromString(
                 Frame.serializer(),
-                """{"type":"attached","device_id":"uuid-1","future_field":123}""",
+                """{"type":"attached","phone_id":"uuid-1","future_field":123}""",
             )
         assertEquals(FrameType.ATTACHED, frame.type)
-        assertEquals("uuid-1", frame.deviceId)
+        assertEquals("uuid-1", frame.phoneId)
         assertNull(frame.error)
     }
 

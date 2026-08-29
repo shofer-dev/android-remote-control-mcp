@@ -63,12 +63,12 @@ import java.util.concurrent.TimeUnit
 import kotlin.random.Random
 
 /**
- * The outbound `/ws/device` client: dials the gateway, runs the eight-frame enrol/attach
+ * The outbound `/ws/phone` client: dials the gateway, runs the eight-frame enrol/attach
  * handshake, and bridges relay `cmd`/`action` frames onto the in-process MCP server and the
  * [DeviceActionHandler] seam. Replaces the removed public tunnel/MCP layer.
  *
  * The dial target is resolved by [resolveDialUrl] from [ConnectorConfig] (precedence: a full
- * `gatewayUrl` used verbatim, else `wss://<edgeHost>/ws/device`). The verbatim path is how an
+ * `gatewayUrl` used verbatim, else `wss://<edgeHost>/ws/phone`). The verbatim path is how an
  * emulated in-cluster device reaches its internal gateway service — a plain `ws://` URL with an
  * explicit port, which the public-edge `wss://<host>` form cannot express; physical/tethered
  * devices take the `edgeHost` fallback. OkHttp handles the `ws://` scheme and the explicit port
@@ -109,7 +109,7 @@ import kotlin.random.Random
  *   window reopens rather than dialling on a backoff that would be refused all night.
  *
  * ── The identity is only as durable as the platform's record of it ─────────────────────
- * Two rules keep a stored `device_id` from outliving its meaning, and both live here rather than
+ * Two rules keep a stored `phone_id` from outliving its meaning, and both live here rather than
  * in the UI because a phone in a rack has nobody looking at it:
  *
  * - **A void identity is discarded, not retried.** When an attach is refused
@@ -122,7 +122,7 @@ import kotlin.random.Random
  * - **A live socket does not outlive the identity it attached with.** A holder who unprovisions
  *   the phone, or a supervisor who replaces its credential, must not leave an attached connection
  *   driving the device under an identity it no longer holds — so the persisted configuration is
- *   watched for the whole life of every socket, and a change to the device id ends the connection.
+ *   watched for the whole life of every socket, and a change to the phone id ends the connection.
  */
 class PlatformConnector(
     private val appContext: Context,
@@ -165,12 +165,12 @@ class PlatformConnector(
     @Volatile private var currentSocket: WebSocket? = null
 
     /**
-     * The device id the CURRENT socket is operating under — the stored one at dial time, replaced
+     * The phone id the CURRENT socket is operating under — the stored one at dial time, replaced
      * by the freshly minted one the instant `enrolled` arrives. It is the identity watch's
      * reference value, and it is updated BEFORE the new id is persisted so the enrolment's own
      * write is not mistaken for the identity moving out from under the connection.
      */
-    @Volatile private var liveDeviceId: String = ""
+    @Volatile private var livePhoneId: String = ""
 
     private var backoffMs = INITIAL_BACKOFF_MS
     private val wakeups = MutableSharedFlow<Unit>(extraBufferCapacity = 1)
@@ -263,7 +263,7 @@ class PlatformConnector(
         val relay = RelayTransport { /* replaced per-connection via rebind */ }
         transport = relay
         session = server.createSession(relay)
-        Log.i(TAG, "MCP session established (device_id present=${config.isEnrolled})")
+        Log.i(TAG, "MCP session established (phone_id present=${config.isEnrolled})")
     }
 
     // ─────────────────────────────── one socket's lifetime ────────────────────────────────
@@ -346,7 +346,7 @@ class PlatformConnector(
                 }
             }
         Log.i(TAG, "Dialing $url")
-        liveDeviceId = config.deviceId
+        livePhoneId = config.phoneId
         val ws = client.newWebSocket(Request.Builder().url(url).build(), listener)
         currentSocket = ws
         transport?.rebind { frame -> ws.send(encode(frame)) }
@@ -463,16 +463,16 @@ class PlatformConnector(
 
     /**
      * Watches the durable configuration for the whole life of one socket and ends the connection
-     * the moment the persisted device id stops being the one this socket attached with.
+     * the moment the persisted phone id stops being the one this socket attached with.
      *
      * Without it an unprovision — or a supervisor swapping the credential — would leave an
      * ATTACHED phone serving relay commands under an identity it no longer holds, for as long as
      * the socket happened to survive. The enrolment's own write is not a change by this
-     * definition: [liveDeviceId] is updated before the new id is persisted.
+     * definition: [livePhoneId] is updated before the new id is persisted.
      */
     private fun startIdentityWatch(events: Channel<WsEvent>): Job =
         scope.launch {
-            settingsRepository.connectorConfig.filter { it.deviceId != liveDeviceId }.first()
+            settingsRepository.connectorConfig.filter { it.phoneId != livePhoneId }.first()
             events.trySend(WsEvent.IdentityChanged)
         }
 
@@ -685,7 +685,7 @@ class PlatformConnector(
                 // The fresh terms that accompany a `terms-required` at attach (Gap B). Present
                 // them, and on acceptance RE-ATTACH: send `attach` again to get a fresh challenge,
                 // then `attach_sig` carrying the accepted `terms_hash` (see [onChallenge]). No
-                // pairing code is involved — the device id is durable and the nonce signature
+                // pairing code is involved — the phone id is durable and the nonce signature
                 // proves the live device, exactly as before; the authenticated device then asserts
                 // acceptance of the current terms.
                 pendingReAccept = false
@@ -722,16 +722,16 @@ class PlatformConnector(
         }
 
         private suspend fun onEnrolled(frame: Frame): ConnectionResult? {
-            val id = frame.deviceId
+            val id = frame.phoneId
             if (id.isNullOrBlank()) {
-                Log.w(TAG, "enrolled frame without device_id")
+                Log.w(TAG, "enrolled frame without phone_id")
                 return ConnectionResult.Reconnect
             }
             // BEFORE the persist, so the identity watch reads the enrolment's own write as the
             // identity this socket already holds rather than as one changing under it.
-            liveDeviceId = id
+            livePhoneId = id
             settingsRepository.updateConnectorEnrolled(id)
-            Log.i(TAG, "Enrolled; device_id persisted. Attaching.")
+            Log.i(TAG, "Enrolled; phone_id persisted. Attaching.")
             _status.value = ConnectorStatus.Attaching
             send(attachFrame(id))
             state = HState.SENT_ATTACH
@@ -914,10 +914,10 @@ class PlatformConnector(
         }
 
     /** The attach frame, carrying whatever this phone can do at this instant. */
-    private fun attachFrame(deviceId: String = liveDeviceId): Frame =
+    private fun attachFrame(phoneId: String = livePhoneId): Frame =
         Frame(
             type = FrameType.ATTACH,
-            deviceId = deviceId,
+            phoneId = phoneId,
             appVersion = appVersion,
             capabilities = capabilities(),
         )
@@ -1048,7 +1048,7 @@ class PlatformConnector(
         /** The liveness watchdog fired: the gateway stopped answering on a socket still held. */
         data object HeartbeatLapsed : WsEvent
 
-        /** The persisted device id is no longer the one this socket attached with. */
+        /** The persisted phone id is no longer the one this socket attached with. */
         data object IdentityChanged : WsEvent
     }
 
@@ -1057,7 +1057,7 @@ class PlatformConnector(
 
         /**
          * The platform answered an attach with [RefusalReason.UNKNOWN_DEVICE]: it holds no record
-         * of this device id, so the stored identity is void. [details] is the gateway's prose,
+         * of this phone id, so the stored identity is void. [details] is the gateway's prose,
          * carried only to be logged.
          */
         data class IdentityVoided(
@@ -1065,7 +1065,7 @@ class PlatformConnector(
         ) : ConnectionResult
 
         /**
-         * The persisted device id changed while this socket was open — the holder unprovisioned
+         * The persisted phone id changed while this socket was open — the holder unprovisioned
          * the phone, or a supervisor replaced its credential. The socket is ended because it
          * belongs to an identity the device no longer holds.
          */
@@ -1115,8 +1115,8 @@ class PlatformConnector(
 
         /**
          * Resolves the dial URL from [config]. Precedence: a non-blank [ConnectorConfig.gatewayUrl]
-         * is used VERBATIM (the in-cluster `ws://host:port/ws/device` path); otherwise the
-         * [ConnectorConfig.edgeHost] fallback yields `wss://<edgeHost>/ws/device` (the
+         * is used VERBATIM (the in-cluster `ws://host:port/ws/phone` path); otherwise the
+         * [ConnectorConfig.edgeHost] fallback yields `wss://<edgeHost>/ws/phone` (the
          * physical/tethered path). The resolved URL must carry a WebSocket scheme — a value whose
          * scheme is neither `ws://` nor `wss://` is reported as [DialResolution.Invalid] so the
          * caller halts with [ConnectorStatus.Misconfigured] instead of handing OkHttp a bad URL.
@@ -1127,7 +1127,7 @@ class PlatformConnector(
                 if (config.gatewayUrl.isNotBlank()) {
                     config.gatewayUrl
                 } else {
-                    "wss://${config.edgeHost}/ws/device"
+                    "wss://${config.edgeHost}/ws/phone"
                 }
             return if (url.startsWith("ws://") || url.startsWith("wss://")) {
                 DialResolution.Ok(url)
@@ -1145,7 +1145,7 @@ class PlatformConnector(
          *
          * 1. **The code is [WireError.UNAUTHORIZED].** No other code is a verdict about identity.
          * 2. **The reason is [RefusalReason.UNKNOWN_DEVICE]** — the platform holds no record of
-         *    this device id. Every attach verdict shares the `unauthorized` code, so the code
+         *    this phone id. Every attach verdict shares the `unauthorized` code, so the code
          *    alone means only "the attach failed" and resetting on it would destroy an identity
          *    over a bad signature or an administrator's revocation. Deliberately EXCLUDED, each
          *    for its own reason:

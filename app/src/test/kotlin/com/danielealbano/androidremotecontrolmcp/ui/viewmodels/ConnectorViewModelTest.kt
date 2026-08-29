@@ -114,13 +114,13 @@ class ConnectorViewModelTest {
             val state =
                 ConnectorViewModel.buildState(
                     status = ConnectorStatus.NotEnrolled,
-                    config = ConnectorConfig(edgeHost = "devices.justceo.ai"),
+                    config = ConnectorConfig(edgeHost = "phones.justceo.ai"),
                     nowMillis = 0,
                 )
 
             assertFalse(state.isEnrolled)
-            assertEquals("", state.deviceIdShort)
-            assertEquals("devices.justceo.ai", state.edgeHost)
+            assertEquals("", state.phoneIdShort)
+            assertEquals("phones.justceo.ai", state.edgeHost)
         }
 
         @Test
@@ -133,7 +133,7 @@ class ConnectorViewModelTest {
                 )
 
             assertTrue(state.isEnrolled)
-            assertEquals("7f3ab21c", state.deviceIdShort)
+            assertEquals("7f3ab21c", state.phoneIdShort)
         }
 
         @Test
@@ -229,13 +229,13 @@ class ConnectorViewModelTest {
                     status = ConnectorStatus.Stopped,
                     config =
                         ConnectorConfig(
-                            edgeHost = "devices.justceo.ai",
-                            gatewayUrl = "ws://device-gateway.justceo.svc:8080/ws/device",
+                            edgeHost = "phones.justceo.ai",
+                            gatewayUrl = "ws://phone-gateway.justceo.svc:8080/ws/phone",
                         ),
                     nowMillis = 0,
                 )
 
-            assertEquals("device-gateway.justceo.svc", state.edgeHost)
+            assertEquals("phone-gateway.justceo.svc", state.edgeHost)
         }
     }
 
@@ -253,8 +253,8 @@ class ConnectorViewModelTest {
                 viewModel.uiState.test {
                     assertEquals(ConnectorUiState(), awaitItem()) // stateIn's seed
                     val joined = awaitItem()
-                    assertEquals("devices.justceo.ai", joined.edgeHost)
-                    assertEquals("7f3ab21c", joined.deviceIdShort)
+                    assertEquals("phones.justceo.ai", joined.edgeHost)
+                    assertEquals("7f3ab21c", joined.phoneIdShort)
                     assertTrue(joined.isEnrolled)
                     cancelAndIgnoreRemainingEvents()
                 }
@@ -270,7 +270,7 @@ class ConnectorViewModelTest {
                     // StateFlow conflates them and only the seed is observed here.
                     assertEquals("", awaitItem().edgeHost)
                     configFlow.value = ENROLLED_CONFIG
-                    assertEquals("devices.justceo.ai", awaitItem().edgeHost)
+                    assertEquals("phones.justceo.ai", awaitItem().edgeHost)
                     cancelAndIgnoreRemainingEvents()
                 }
             }
@@ -349,11 +349,11 @@ class ConnectorViewModelTest {
             runTest {
                 val viewModel = newViewModel()
 
-                viewModel.pair("devices.justceo.ai", "PAIR-4KJ2")
+                viewModel.pair("phones.justceo.ai", "PAIR-4KJ2")
                 testDispatcher.scheduler.advanceUntilIdle()
 
                 coVerify(exactly = 1) {
-                    settingsRepository.updateConnectorPairing("devices.justceo.ai", "PAIR-4KJ2")
+                    settingsRepository.updateConnectorPairing("phones.justceo.ai", "PAIR-4KJ2")
                 }
             }
 
@@ -362,11 +362,11 @@ class ConnectorViewModelTest {
             runTest {
                 val viewModel = newViewModel()
 
-                viewModel.pair(" wss://Devices.JustCEO.ai/ws/device ", "PAIR 4KJ2\n")
+                viewModel.pair(" wss://Phones.JustCEO.ai/ws/phone ", "PAIR 4KJ2\n")
                 testDispatcher.scheduler.advanceUntilIdle()
 
                 coVerify(exactly = 1) {
-                    settingsRepository.updateConnectorPairing("devices.justceo.ai", "PAIR4KJ2")
+                    settingsRepository.updateConnectorPairing("phones.justceo.ai", "PAIR4KJ2")
                 }
             }
 
@@ -375,7 +375,7 @@ class ConnectorViewModelTest {
             runTest {
                 val viewModel = newViewModel()
 
-                viewModel.pair("devices.justceo.ai", "PAIR-4KJ2")
+                viewModel.pair("phones.justceo.ai", "PAIR-4KJ2")
                 testDispatcher.scheduler.advanceUntilIdle()
 
                 coVerify(exactly = 1) { connectorEnsure.start() }
@@ -386,7 +386,7 @@ class ConnectorViewModelTest {
             runTest {
                 val viewModel = newViewModel()
 
-                viewModel.pair("devices.justceo.ai", "   ")
+                viewModel.pair("phones.justceo.ai", "   ")
                 testDispatcher.scheduler.advanceUntilIdle()
 
                 coVerify(exactly = 0) { settingsRepository.updateConnectorPairing(any(), any()) }
@@ -412,7 +412,7 @@ class ConnectorViewModelTest {
                 // explicit start rather than by a write nobody asked for.
                 val viewModel = newViewModel()
 
-                viewModel.pair("devices.justceo.ai", "PAIR-4KJ2")
+                viewModel.pair("phones.justceo.ai", "PAIR-4KJ2")
                 testDispatcher.scheduler.advanceUntilIdle()
 
                 coVerify(exactly = 0) { settingsRepository.clearConnectorEnrolment() }
@@ -543,7 +543,7 @@ class ConnectorViewModelTest {
             runTest {
                 val viewModel = newViewModel()
 
-                viewModel.pair("devices.justceo.ai", "PAIR-4KJ2")
+                viewModel.pair("phones.justceo.ai", "PAIR-4KJ2")
                 testDispatcher.scheduler.advanceUntilIdle()
                 viewModel.cancelPairing()
                 testDispatcher.scheduler.advanceUntilIdle()
@@ -561,7 +561,7 @@ class ConnectorViewModelTest {
 
                 viewModel.pairingProgress.test {
                     assertEquals(PairingProgress.Idle, awaitItem())
-                    viewModel.pair("devices.justceo.ai", "PAIR-4KJ2")
+                    viewModel.pair("phones.justceo.ai", "PAIR-4KJ2")
                     assertTrue(awaitItem() !is PairingProgress.Idle)
                     viewModel.cancelPairing()
                     assertEquals(PairingProgress.Idle, awaitItem())
@@ -618,8 +618,8 @@ class ConnectorViewModelTest {
 
         val ENROLLED_CONFIG =
             ConnectorConfig(
-                edgeHost = "devices.justceo.ai",
-                deviceId = "7f3ab21c-9d44-4a1e-8f0b-2c5d6e7a8b90",
+                edgeHost = "phones.justceo.ai",
+                phoneId = "7f3ab21c-9d44-4a1e-8f0b-2c5d6e7a8b90",
             )
     }
 }

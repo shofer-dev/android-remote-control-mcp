@@ -9,8 +9,8 @@ import javax.inject.Singleton
 /**
  * The ONE place a device's platform identity is destroyed.
  *
- * An identity is TWO durable things that must die together: the `device_id`
- * ([com.danielealbano.androidremotecontrolmcp.data.model.ConnectorConfig.deviceId]) and the
+ * An identity is TWO durable things that must die together: the `phone_id`
+ * ([com.danielealbano.androidremotecontrolmcp.data.model.ConnectorConfig.phoneId]) and the
  * ed25519 keypair the attach challenge is signed with ([DeviceIdentity]). Clearing one without
  * the other leaves the phone in a state neither the app nor the platform has a name for — an id
  * with no key that can never attach, or a key bound at the platform to an id the phone has

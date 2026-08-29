@@ -21,7 +21,7 @@ import com.danielealbano.androidremotecontrolmcp.data.model.ConnectorConfig
  * - NOT [ConnectorConfig.stoppedByUser]: nobody has since vetoed it. This clause is what stops
  *   the watchdog from re-starting, fifteen minutes later, a connector a human just stopped.
  * - a dial target exists ([PlatformConnector.hasDialTarget] — a gateway URL or an edge host).
- * - a credential exists: an enrolled device id, or an unspent pairing code.
+ * - a credential exists: an enrolled phone id, or an unspent pairing code.
  *
  * The last two mirror the guards inside [PlatformConnector.run]: without either, the service
  * would come up, post a foreground notification, and sit in

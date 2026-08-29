@@ -9,7 +9,7 @@ import java.net.URLDecoder
  * It exists as a pure object, away from both the dialog and the ViewModel, because the damage it
  * repairs happens off-device — a value read off a screen and retyped, or copied through a chat app
  * that wrapped it. Written straight through, every one of those produces a dial that fails with
- * something unhelpful: `wss://wss://host/ws/device` for a pasted URL, a host with a trailing
+ * something unhelpful: `wss://wss://host/ws/phone` for a pasted URL, a host with a trailing
  * newline that resolves to nothing, a code the platform refuses because it carries a space. None of
  * them is a mistake the holder can see, so each is repaired here or refused here, before anything
  * is persisted.
@@ -18,7 +18,7 @@ import java.net.URLDecoder
  * - surrounding and embedded whitespace, in BOTH fields — a code chunked as `ABCD EFGH` on the
  *   console and a host copied with a trailing newline are the same accident;
  * - a full URL in the host field — scheme, path, query and any `user@` are dropped, leaving the
- *   authority, which is exactly what `wss://<edgeHost>/ws/device` needs;
+ *   authority, which is exactly what `wss://<edgeHost>/ws/phone` needs;
  * - the host's case, which DNS does not distinguish.
  *
  * What is refused: a blank field, and a host that is not a host — so nothing that cannot dial is
@@ -74,7 +74,7 @@ object PairingInput {
      *
      * Whitespace is removed first, so a value broken across lines by a chat client is repaired
      * rather than rejected. Then a scheme, a path, a query and any `user@` prefix are dropped in
-     * turn — which is what turns a pasted `wss://devices.example.com/ws/device` into
+     * turn — which is what turns a pasted `wss://devices.example.com/ws/phone` into
      * `devices.example.com`.
      */
     fun normaliseHost(raw: String): String {

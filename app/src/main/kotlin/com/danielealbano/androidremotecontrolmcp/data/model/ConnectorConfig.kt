@@ -8,22 +8,22 @@ import java.net.URI
 import java.net.URISyntaxException
 
 /**
- * Configuration and durable state for the platform connector (the `/ws/device` client).
+ * Configuration and durable state for the platform connector (the `/ws/phone` client).
  *
  * The connector resolves its dial target from two fields, in precedence order:
- * - [gatewayUrl], when non-blank, is used VERBATIM — a full `ws://…/ws/device` or
- *   `wss://…/ws/device` URL, scheme and explicit port included. This is the in-cluster path: an
+ * - [gatewayUrl], when non-blank, is used VERBATIM — a full `ws://…/ws/phone` or
+ *   `wss://…/ws/phone` URL, scheme and explicit port included. This is the in-cluster path: an
  *   emulated device in an egress-locked pod cannot reach the public edge and must dial its
  *   internal gateway service directly (plain `ws://` with a port).
- * - [edgeHost] is the device-edge host only (e.g. `devices.justceo.ai`); when [gatewayUrl] is
- *   blank the connector falls back to `wss://<edgeHost>/ws/device`. This is the physical/tethered
+ * - [edgeHost] is the device-edge host only (e.g. `phones.justceo.ai`); when [gatewayUrl] is
+ *   blank the connector falls back to `wss://<edgeHost>/ws/phone`. This is the physical/tethered
  *   path. At least one of the two is required to dial.
  *
  * No host or URL is ever hardcoded — both come from DataStore, set through the settings UI or the
  * adb broadcast (fork map §10).
  *
  * [enrolmentCode] is the ONE-TIME pairing code. It is consumed by a successful enrolment and
- * cleared afterwards ([deviceId] is what every subsequent attach names). [deviceId] is the
+ * cleared afterwards ([phoneId] is what every subsequent attach names). [phoneId] is the
  * platform `resources` row UUID the gateway returns in `enrolled`; its presence is what
  * distinguishes "must enrol" from "may attach".
  *
@@ -41,12 +41,12 @@ data class ConnectorConfig(
     val edgeHost: String = "",
     val gatewayUrl: String = "",
     val enrolmentCode: String = "",
-    val deviceId: String = "",
+    val phoneId: String = "",
     val autoStart: Boolean = false,
     val stoppedByUser: Boolean = false,
 ) {
     /** True once the device holds a durable identity and no longer needs a pairing code. */
-    val isEnrolled: Boolean get() = deviceId.isNotBlank()
+    val isEnrolled: Boolean get() = phoneId.isNotBlank()
 
     /**
      * The host the connector dials, for DISPLAY only — the notification text and the connector

@@ -346,7 +346,7 @@ dependencies {
     implementation(libs.ktor.client.content.negotiation)
     implementation(libs.ktor.serialization.kotlinx.json)
 
-    // OkHttp WebSocket — the platform connector's outbound /ws/device client
+    // OkHttp WebSocket — the platform connector's outbound /ws/phone client
     implementation(libs.okhttp)
 
     // BouncyCastle — Ed25519 provider for the software-tier device-identity fallback

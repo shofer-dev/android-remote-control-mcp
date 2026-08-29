@@ -28,8 +28,8 @@ class ConnectorAutoStartTest {
             // must self-heal exactly like a tethered phone does.
             val config =
                 ConnectorConfig(
-                    gatewayUrl = "ws://device-gateway.justceo.svc.cluster.local:8025/ws/device",
-                    deviceId = DEVICE_ID,
+                    gatewayUrl = "ws://phone-gateway.justceo.svc.cluster.local:8025/ws/phone",
+                    phoneId = PHONE_ID,
                     autoStart = true,
                 )
 
@@ -38,7 +38,7 @@ class ConnectorAutoStartTest {
 
         @Test
         fun `an unspent pairing code counts as a credential`() {
-            val config = ENROLLED.copy(deviceId = "", enrolmentCode = "PAIR-1234")
+            val config = ENROLLED.copy(phoneId = "", enrolmentCode = "PAIR-1234")
 
             assertTrue(ConnectorAutoStart.shouldRun(config))
         }
@@ -60,12 +60,12 @@ class ConnectorAutoStartTest {
 
         @Test
         fun `neither a device id nor a code means there is nothing to attach with`() {
-            assertFalse(ConnectorAutoStart.shouldRun(ENROLLED.copy(deviceId = "", enrolmentCode = "")))
+            assertFalse(ConnectorAutoStart.shouldRun(ENROLLED.copy(phoneId = "", enrolmentCode = "")))
         }
 
         @Test
         fun `a blank pairing code is not a credential`() {
-            assertFalse(ConnectorAutoStart.shouldRun(ENROLLED.copy(deviceId = "", enrolmentCode = "   ")))
+            assertFalse(ConnectorAutoStart.shouldRun(ENROLLED.copy(phoneId = "", enrolmentCode = "   ")))
         }
 
         @Test
@@ -97,12 +97,12 @@ class ConnectorAutoStartTest {
     }
 
     private companion object {
-        const val DEVICE_ID = "7f3ab21c-9d44-4a1e-8f0b-2c5d6e7a8b90"
+        const val PHONE_ID = "7f3ab21c-9d44-4a1e-8f0b-2c5d6e7a8b90"
 
         val ENROLLED =
             ConnectorConfig(
-                edgeHost = "devices.justceo.ai",
-                deviceId = DEVICE_ID,
+                edgeHost = "phones.justceo.ai",
+                phoneId = PHONE_ID,
                 autoStart = true,
             )
     }

@@ -7,10 +7,10 @@ import kotlinx.serialization.json.Json
 import kotlinx.serialization.json.JsonElement
 
 /**
- * The single flat envelope of the `/ws/device` wire protocol.
+ * The single flat envelope of the `/ws/phone` wire protocol.
  *
  * One JSON object per WebSocket message serves BOTH directions and every frame kind
- * (matching `device-gateway/internal/protocol/protocol.go` `Frame`). The [type] field is
+ * (matching `phone-gateway/internal/protocol/protocol.go` `Frame`). The [type] field is
  * the discriminator; every other field is optional (`omitempty` on the Go side). On the
  * Kotlin side that maps to nullable properties encoded with [ConnectorJson], whose
  * `explicitNulls = false` + `encodeDefaults = false` config drops any null/absent field
@@ -47,7 +47,7 @@ data class Frame(
     val pubkey: String? = null,
     val attestation: JsonElement? = null,
     @SerialName("app_version") val appVersion: String? = null,
-    @SerialName("device_id") val deviceId: String? = null,
+    @SerialName("phone_id") val phoneId: String? = null,
     @SerialName("terms_text") val termsText: String? = null,
     @SerialName("terms_hash") val termsHash: String? = null,
     val nonce: String? = null,
@@ -109,7 +109,7 @@ object FrameType {
     /**
      * The device-enforced policy snapshot (`protocol.go` `TypePolicy`). Sent immediately
      * after [ATTACHED], and again whenever the state it carries changes — today a pause or a
-     * resume on the `android-use` / `android-manage` plane.
+     * resume on the `phone-use` / `phone-manage` plane.
      */
     const val POLICY = "policy"
     const val ERROR = "error"
@@ -123,7 +123,7 @@ object FrameType {
 
 /**
  * The optional capabilities a device may advertise, verbatim from
- * `device-gateway/internal/protocol/host.go`.
+ * `phone-gateway/internal/protocol/host.go`.
  *
  * The vocabulary is shared with the device-HOST leg on purpose: "can this thing put a screen on the
  * wire" is one question the platform asks of three different device classes, and one spelling is
@@ -143,7 +143,7 @@ object Capability {
 
 /**
  * The typed codes this connector may put in a [FrameType.STREAM_ENDED] frame's `error`, matching
- * `device-gateway/internal/protocol/protocol.go`.
+ * `phone-gateway/internal/protocol/protocol.go`.
  */
 object StreamError {
     /** This phone cannot capture: no live consent, no usable encoder, or the OS ended the grant. */
@@ -155,7 +155,7 @@ object StreamError {
 
 /**
  * The six typed refusal codes that can actually arrive on the device socket (wire spec §5).
- * The other six declared codes (`device_offline`/`device_busy`/… and `action-unsupported`,
+ * The other six declared codes (`phone_offline`/`phone_busy`/… and `action-unsupported`,
  * `not-applicable`) only ever reach HTTP callers, never a device, so they are not modelled
  * here — but a handler must branch defensively since they share the vocabulary.
  *
@@ -186,7 +186,7 @@ object WireError {
  */
 object RefusalReason {
     /**
-     * The platform holds NO record of this device id — a deleted device record, or an identity
+     * The platform holds NO record of this phone id — a deleted device record, or an identity
      * from a platform this phone is no longer paired with. The stored identity is void by
      * definition: nothing the device can send under it will ever be accepted, so the app discards
      * it and provisions again ([com.danielealbano.androidremotecontrolmcp.services.connector.ConnectorProvisioning]).

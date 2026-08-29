@@ -123,7 +123,7 @@
                 android:value="MCP server providing remote device control" />
         </service>
 
-        <!-- Platform Connector Foreground Service (outbound /ws/device client) -->
+        <!-- Platform Connector Foreground Service (outbound /ws/phone client) -->
         <service
             android:name=".services.connector.PlatformConnectorService"
             android:exported="false"

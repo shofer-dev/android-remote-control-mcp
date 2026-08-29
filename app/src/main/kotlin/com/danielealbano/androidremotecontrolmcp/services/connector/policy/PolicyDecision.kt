@@ -23,7 +23,7 @@ sealed interface PolicyDecision {
 
 /**
  * The typed device-side refusal codes, spelled exactly as
- * `device-gateway/internal/protocol/protocol.go` declares them. The gateway never mints one —
+ * `phone-gateway/internal/protocol/protocol.go` declares them. The gateway never mints one —
  * it carries them back from the device — but it declares them because they are shared API
  * surface. Changing a spelling here without changing it there breaks the contract silently:
  * the caller simply stops recognising the reason.

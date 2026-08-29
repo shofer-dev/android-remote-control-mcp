@@ -3,7 +3,7 @@ package com.danielealbano.androidremotecontrolmcp.services.connector
 /**
  * The rule that decides whether an attached link may still be REPORTED as connected.
  *
- * The gateway does not probe the device: on `/ws/device` the DEVICE sends `{"type":"ping"}` and
+ * The gateway does not probe the device: on `/ws/phone` the DEVICE sends `{"type":"ping"}` and
  * the gateway answers `{"type":"pong"}`, and any frame from an attached device refreshes the
  * server's own last-seen (`hub.Seen`). The server closes a socket whose last-seen has lapsed
  * past its `HEARTBEAT_LAPSE` (90s by default). So the `pong` is the only thing that proves the

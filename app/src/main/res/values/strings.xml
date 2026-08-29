@@ -23,7 +23,7 @@
     <string name="notification_connector_reconnecting">Connection lost — reconnecting</string>
     <string name="notification_connector_halted">Not connected — %1$s</string>
     <string name="connector_card_title">Platform Connector</string>
-    <string name="connector_card_device">Device</string>
+    <string name="connector_card_phone">Phone</string>
     <string name="connector_card_host">Edge host</string>
     <string name="connector_card_enrolled">Enrolled</string>
     <string name="connector_card_heartbeat">Last platform heartbeat</string>
