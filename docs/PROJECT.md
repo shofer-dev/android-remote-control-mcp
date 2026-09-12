@@ -89,7 +89,12 @@ The typical startup flow: User opens app → enables Accessibility Service in An
 - **Android Gradle Plugin (AGP)**: 8.13 (latest stable 8.x)
 - **Gradle**: 8.14.4 (latest stable 8.x)
 - **KSP**: 2.3.5 (Kotlin Symbol Processing, decoupled from Kotlin since 2.3.0)
-- **Android SDK**: Target API 34 (Android 14), Minimum API 33 (Android 13 Tiramisu)
+- **Android SDK**: Target API 34 (Android 14), Minimum API 31 (Android 12). Two surfaces are
+  API 33+ only and degrade honestly below it: the natural-typing tools (the accessibility IME
+  plane does not exist on Android 12, so they report no input connection) and
+  `AccessibilityService.clearCache()` (the framework node cache cannot be dropped, so a WebView
+  read may be stale). `POST_NOTIFICATIONS` likewise does not exist below 33, where notifications
+  are on by default and the permission is reported as held rather than requested.
 - **JDK**: Java 17 (standard for Android development)
 
 ### Frameworks & Libraries

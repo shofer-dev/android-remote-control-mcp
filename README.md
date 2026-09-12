@@ -135,7 +135,7 @@ The app declares the permissions below. **Normal** permissions are granted autom
 | `KILL_BACKGROUND_PROCESSES` | Normal | Stop background apps via app-management tools |
 | `ACCESS_WIFI_STATE` | Normal | Read WiFi state for the Event Channel |
 | `CHANGE_WIFI_STATE` | Normal | Manage WiFi for the Event Channel |
-| `POST_NOTIFICATIONS` | Runtime | Show the foreground service notification (Android 13+) |
+| `POST_NOTIFICATIONS` | Runtime | Show the foreground service notification (Android 13+ only — on Android 12 notifications are on by default and there is nothing to grant) |
 | `CAMERA` | Runtime | Camera photo/video MCP tools |
 | `RECORD_AUDIO` | Runtime | Audio capture for camera video tools |
 | `ACCESS_FINE_LOCATION` | Runtime | Location tools and geofence events |
@@ -323,7 +323,8 @@ adb shell settings put secure enabled_accessibility_services \
 adb shell cmd notification allow_listener \
   <app-id>/com.danielealbano.androidremotecontrolmcp.services.notifications.McpNotificationListenerService
 
-# Grant notification permission (Android 13+)
+# Grant notification permission (Android 13+; fails as "Unknown permission" on Android 12,
+# where notifications are on by default and the app reports the grant as held)
 adb shell pm grant <app-id> android.permission.POST_NOTIFICATIONS
 
 # Grant camera permission

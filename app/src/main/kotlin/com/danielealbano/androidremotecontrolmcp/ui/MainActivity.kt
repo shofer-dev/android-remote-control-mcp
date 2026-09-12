@@ -3,6 +3,7 @@ package com.danielealbano.androidremotecontrolmcp.ui
 import android.Manifest
 import android.content.Context
 import android.content.Intent
+import android.os.Build
 import android.os.Bundle
 import androidx.activity.ComponentActivity
 import androidx.activity.compose.setContent
@@ -82,8 +83,18 @@ class MainActivity : ComponentActivity() {
 
     /**
      * Requests the POST_NOTIFICATIONS runtime permission.
+     *
+     * Below API 33 the permission does not exist, and launching the request there is not a
+     * harmless no-op: the system has nothing to show, so it returns DENIED without a dialog and
+     * the holder sees a button that visibly does nothing. Notifications are on by default on those
+     * builds — `PermissionUtils.isNotificationPermissionGranted` already reports the grant as held
+     * — so the only correct action is to re-read the state and leave the holder alone.
      */
     private fun requestNotificationPermission() {
+        if (Build.VERSION.SDK_INT < Build.VERSION_CODES.TIRAMISU) {
+            viewModel.refreshPermissionStatus(this)
+            return
+        }
         notificationPermissionLauncher.launch(Manifest.permission.POST_NOTIFICATIONS)
     }
 

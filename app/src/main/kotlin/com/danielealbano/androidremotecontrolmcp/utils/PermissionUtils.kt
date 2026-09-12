@@ -4,6 +4,7 @@ import android.Manifest
 import android.content.Context
 import android.content.Intent
 import android.content.pm.PackageManager
+import android.os.Build
 import android.provider.Settings
 import androidx.core.content.ContextCompat
 
@@ -56,16 +57,36 @@ object PermissionUtils {
     }
 
     /**
-     * Checks whether the `POST_NOTIFICATIONS` runtime permission is granted.
+     * Checks whether the app may post notifications.
+     *
+     * `POST_NOTIFICATIONS` exists only from API 33. Below it the permission is not defined by the
+     * platform at all, so the `<uses-permission>` entry is ignored at install and
+     * `ContextCompat.checkSelfPermission` answers `PERMISSION_DENIED` — the package's permission
+     * state simply has no row for a permission the framework never declared. Reading that answer
+     * literally would be a lie in the only direction that matters: an Android 12 phone posts
+     * notifications by default, yet every surface fed by this check (the permissions screen, the
+     * audit card, the shade nudge's `CANNOT_POST` rule) would report a permanent, unfixable gap —
+     * unfixable because there is nothing to ask for, and `pm grant` answers "Unknown permission"
+     * on such a build too.
+     *
+     * So below API 33 the grant is NOT APPLICABLE and is reported as held. It is the only honest
+     * answer to the question this function is actually asked: may this device tell its holder what
+     * is happening to it.
      *
      * @param context Application context.
-     * @return `true` if notification permission is granted, `false` otherwise.
+     * @param sdkInt The running API level; injectable because [android.os.Build.VERSION.SDK_INT]
+     *   is a static final field that unit tests cannot set.
+     * @return `true` if notifications may be posted, `false` otherwise.
      */
-    fun isNotificationPermissionGranted(context: Context): Boolean =
-        ContextCompat.checkSelfPermission(
-            context,
-            Manifest.permission.POST_NOTIFICATIONS,
-        ) == PackageManager.PERMISSION_GRANTED
+    fun isNotificationPermissionGranted(
+        context: Context,
+        sdkInt: Int = Build.VERSION.SDK_INT,
+    ): Boolean =
+        sdkInt < Build.VERSION_CODES.TIRAMISU ||
+            ContextCompat.checkSelfPermission(
+                context,
+                Manifest.permission.POST_NOTIFICATIONS,
+            ) == PackageManager.PERMISSION_GRANTED
 
     /**
      * Checks whether the `CAMERA` runtime permission is granted.

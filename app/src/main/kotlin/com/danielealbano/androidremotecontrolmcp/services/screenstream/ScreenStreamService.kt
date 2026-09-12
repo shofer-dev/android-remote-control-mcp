@@ -10,6 +10,7 @@ import android.os.IBinder
 import android.util.Log
 import androidx.core.app.NotificationCompat
 import androidx.core.app.ServiceCompat
+import androidx.core.content.IntentCompat
 import com.danielealbano.androidremotecontrolmcp.McpApplication
 import com.danielealbano.androidremotecontrolmcp.R
 import com.danielealbano.androidremotecontrolmcp.ui.MainActivity
@@ -64,7 +65,7 @@ class ScreenStreamService : Service() {
      */
     private fun arm(intent: Intent) {
         val resultCode = intent.getIntExtra(EXTRA_RESULT_CODE, 0)
-        val data = intent.getParcelableExtra(EXTRA_RESULT_DATA, Intent::class.java)
+        val data = IntentCompat.getParcelableExtra(intent, EXTRA_RESULT_DATA, Intent::class.java)
         if (data == null) {
             Log.w(TAG, "Arm request carried no consent result; nothing to take")
             stopSelf()

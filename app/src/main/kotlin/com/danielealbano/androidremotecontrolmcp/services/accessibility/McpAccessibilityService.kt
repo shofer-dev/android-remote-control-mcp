@@ -7,12 +7,14 @@ import android.content.ComponentCallbacks2
 import android.content.Context
 import android.content.res.Configuration
 import android.graphics.Bitmap
+import android.os.Build
 import android.util.Log
 import android.view.Display
 import android.view.WindowManager
 import android.view.accessibility.AccessibilityEvent
 import android.view.accessibility.AccessibilityNodeInfo
 import android.view.accessibility.AccessibilityWindowInfo
+import androidx.annotation.RequiresApi
 import dagger.hilt.EntryPoint
 import dagger.hilt.InstallIn
 import dagger.hilt.android.EntryPointAccessors
@@ -240,6 +242,12 @@ class McpAccessibilityService : AccessibilityService() {
         )
     }
 
+    /**
+     * The accessibility IME plane exists only from API 33, and the framework calls this only on
+     * builds that have it — so the annotation states the fact rather than adding a guard that
+     * could never fire.
+     */
+    @RequiresApi(Build.VERSION_CODES.TIRAMISU)
     override fun onCreateInputMethod(): InputMethod {
         val method = McpInputMethod(this)
         inputMethodInstance = method
@@ -253,9 +261,15 @@ class McpAccessibilityService : AccessibilityService() {
                     AccessibilityEvent.TYPE_WINDOWS_CHANGED or
                     AccessibilityEvent.TYPE_WINDOW_CONTENT_CHANGED
                 feedbackType = AccessibilityServiceInfo.FEEDBACK_GENERIC
+                // FLAG_INPUT_METHOD_EDITOR (API 33) asks for the accessibility IME plane the typing
+                // tools drive. Below 33 there is no such plane, so the bit is simply not asked for.
                 flags = AccessibilityServiceInfo.FLAG_REPORT_VIEW_IDS or
                     AccessibilityServiceInfo.FLAG_RETRIEVE_INTERACTIVE_WINDOWS or
-                    AccessibilityServiceInfo.FLAG_INPUT_METHOD_EDITOR
+                    if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU) {
+                        AccessibilityServiceInfo.FLAG_INPUT_METHOD_EDITOR
+                    } else {
+                        0
+                    }
                 notificationTimeout = NOTIFICATION_TIMEOUT_MS
             }
         if (serviceInfo == null) {
@@ -316,23 +330,30 @@ class McpAccessibilityService : AccessibilityService() {
         }
 
     /**
-     * Returns true if screenshot capability is available. Always true on minSdk 33+.
+     * Returns true if screenshot capability is available. `takeScreenshot` is API 30+, so this is
+     * always true on this app's minSdk (31).
      */
     @Suppress("FunctionOnlyReturningConstant")
     fun canTakeScreenshot(): Boolean = true
 
     /**
-     * Drops the framework's accessibility node cache for this service via [clearCache] (public
-     * since API 33; minSdk is 33). See [AccessibilityServiceProvider.clearFrameworkNodeCache] for
-     * why this is needed to defeat stale WebView reads after JavaScript DOM changes.
+     * Drops the framework's accessibility node cache for this service via [clearCache], public
+     * since API 33. See [AccessibilityServiceProvider.clearFrameworkNodeCache] for why this is
+     * needed to defeat stale WebView reads after JavaScript DOM changes.
      *
-     * This is distinct from [invalidateCache], which flushes our own id→node [nodeCache]; this
-     * clears the framework-side cache that backs [rootInActiveWindow]/[getWindows] traversal.
+     * On API 31/32 there is no such API — the framework cache cannot be dropped from an
+     * accessibility service at all — so the call is skipped and a stale WebView read stays
+     * possible there. Our own id→node cache is still flushed by [invalidateCache], which is a
+     * different cache and unaffected by the API level.
      */
     fun clearFrameworkNodeCache() {
-        clearCache()
+        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU) {
+            clearCache()
+        }
     }
 
+    /** The accessibility IME instance the typing tools drive. API 33+ only; see [InputMethod]. */
+    @RequiresApi(Build.VERSION_CODES.TIRAMISU)
     class McpInputMethod(
         service: AccessibilityService,
     ) : InputMethod(service)

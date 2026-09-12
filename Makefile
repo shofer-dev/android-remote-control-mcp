@@ -172,7 +172,10 @@ grant-permissions: ## Grant permissions via adb (accessibility + notification li
 	@echo "   Done."
 	@echo ""
 	@echo "3. Granting POST_NOTIFICATIONS permission..."
-	$(ADB) shell pm grant $(APP_ID_DEBUG) android.permission.POST_NOTIFICATIONS
+	@# API 33+ only. On an Android 12 handset the permission does not exist and pm answers
+	@# "Unknown permission"; notifications are on by default there, so the failure is expected and
+	@# must not stop the rest of the grants. Same for the READ_MEDIA_* trio below.
+	-$(ADB) shell pm grant $(APP_ID_DEBUG) android.permission.POST_NOTIFICATIONS
 	@echo "   Done."
 	@echo ""
 	@echo "4. Granting CAMERA permission..."
@@ -196,15 +199,15 @@ grant-permissions: ## Grant permissions via adb (accessibility + notification li
 	@echo "   Done."
 	@echo ""
 	@echo "9. Granting READ_MEDIA_IMAGES permission..."
-	$(ADB) shell pm grant $(APP_ID_DEBUG) android.permission.READ_MEDIA_IMAGES
+	-$(ADB) shell pm grant $(APP_ID_DEBUG) android.permission.READ_MEDIA_IMAGES
 	@echo "   Done."
 	@echo ""
 	@echo "10. Granting READ_MEDIA_VIDEO permission..."
-	$(ADB) shell pm grant $(APP_ID_DEBUG) android.permission.READ_MEDIA_VIDEO
+	-$(ADB) shell pm grant $(APP_ID_DEBUG) android.permission.READ_MEDIA_VIDEO
 	@echo "   Done."
 	@echo ""
 	@echo "11. Granting READ_MEDIA_AUDIO permission..."
-	$(ADB) shell pm grant $(APP_ID_DEBUG) android.permission.READ_MEDIA_AUDIO
+	-$(ADB) shell pm grant $(APP_ID_DEBUG) android.permission.READ_MEDIA_AUDIO
 	@echo "   Done."
 	@echo ""
 

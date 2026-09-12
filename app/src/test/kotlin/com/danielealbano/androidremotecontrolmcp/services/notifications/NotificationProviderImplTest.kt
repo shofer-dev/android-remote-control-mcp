@@ -97,12 +97,10 @@ class NotificationProviderImplTest {
             }
 
         val appInfo = mockk<ApplicationInfo>()
-        every {
-            mockPackageManager.getApplicationInfo(
-                packageName,
-                PackageManager.ApplicationInfoFlags.of(0),
-            )
-        } returns appInfo
+        // The Int-flags overload, not the API 33 `ApplicationInfoFlags` one: `Build.VERSION.SDK_INT`
+        // reads 0 in a JVM unit test, so NotificationDataExtractor takes its pre-33 branch here.
+        @Suppress("DEPRECATION")
+        every { mockPackageManager.getApplicationInfo(packageName, 0) } returns appInfo
         every { mockPackageManager.getApplicationLabel(appInfo) } returns "Test App"
 
         return mockk<StatusBarNotification> {
@@ -815,11 +813,9 @@ class NotificationProviderImplTest {
                         this.actions = null
                     }
 
+                @Suppress("DEPRECATION")
                 every {
-                    mockPackageManager.getApplicationInfo(
-                        "com.unknown.app",
-                        PackageManager.ApplicationInfoFlags.of(0),
-                    )
+                    mockPackageManager.getApplicationInfo("com.unknown.app", 0)
                 } throws PackageManager.NameNotFoundException()
 
                 val sbn =

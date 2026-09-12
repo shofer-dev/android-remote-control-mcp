@@ -37,6 +37,7 @@ import org.junit.jupiter.api.Assertions.assertTrue
 import org.junit.jupiter.api.BeforeEach
 import org.junit.jupiter.api.DisplayName
 import org.junit.jupiter.api.Test
+import java.io.IOException
 
 @OptIn(ExperimentalCoroutinesApi::class)
 @DisplayName("LocationProviderImpl")
@@ -229,22 +230,18 @@ class LocationProviderImplTest {
                 }
             setupLastLocationTask(mockLocation)
 
-            val listenerSlot = slot<Geocoder.GeocodeListener>()
+            // The deprecated synchronous overload, not the API 33 callback one: `Build.VERSION.SDK_INT`
+            // reads 0 in a JVM unit test, so reverseGeocode takes its pre-33 branch. The callback
+            // form is the same lookup expressed differently and is exercised on a real API 33+ device.
+            val mockAddress =
+                mockk<Address> {
+                    every { getAddressLine(0) } returns "123 Main St, San Francisco, CA"
+                }
             mockkConstructor(Geocoder::class)
+            @Suppress("DEPRECATION")
             every {
-                anyConstructed<Geocoder>().getFromLocation(
-                    any<Double>(),
-                    any<Double>(),
-                    any<Int>(),
-                    capture(listenerSlot),
-                )
-            } answers {
-                val mockAddress =
-                    mockk<Address> {
-                        every { getAddressLine(0) } returns "123 Main St, San Francisco, CA"
-                    }
-                listenerSlot.captured.onGeocode(listOf(mockAddress))
-            }
+                anyConstructed<Geocoder>().getFromLocation(any<Double>(), any<Double>(), any<Int>())
+            } returns listOf(mockAddress)
 
             val result = provider.getLocation(false)
 
@@ -275,7 +272,7 @@ class LocationProviderImplTest {
         }
 
     @Test
-    fun `getLocation returns null street when Geocoder onError`() =
+    fun `getLocation returns null street when Geocoder fails`() =
         runTest {
             setupPlayServicesAvailable()
             setupPermissionGranted()
@@ -288,18 +285,11 @@ class LocationProviderImplTest {
                 }
             setupLastLocationTask(mockLocation)
 
-            val listenerSlot = slot<Geocoder.GeocodeListener>()
             mockkConstructor(Geocoder::class)
+            @Suppress("DEPRECATION")
             every {
-                anyConstructed<Geocoder>().getFromLocation(
-                    any<Double>(),
-                    any<Double>(),
-                    any<Int>(),
-                    capture(listenerSlot),
-                )
-            } answers {
-                listenerSlot.captured.onError("Service unavailable")
-            }
+                anyConstructed<Geocoder>().getFromLocation(any<Double>(), any<Double>(), any<Int>())
+            } throws IOException("Service unavailable")
 
             val result = provider.getLocation(false)
 
@@ -321,18 +311,11 @@ class LocationProviderImplTest {
                 }
             setupLastLocationTask(mockLocation)
 
-            val listenerSlot = slot<Geocoder.GeocodeListener>()
             mockkConstructor(Geocoder::class)
+            @Suppress("DEPRECATION")
             every {
-                anyConstructed<Geocoder>().getFromLocation(
-                    any<Double>(),
-                    any<Double>(),
-                    any<Int>(),
-                    capture(listenerSlot),
-                )
-            } answers {
-                listenerSlot.captured.onGeocode(emptyList())
-            }
+                anyConstructed<Geocoder>().getFromLocation(any<Double>(), any<Double>(), any<Int>())
+            } returns emptyList()
 
             val result = provider.getLocation(false)
 

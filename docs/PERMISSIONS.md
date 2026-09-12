@@ -23,8 +23,16 @@ See the [Permissions Reference](../README.md#permissions-reference) in the READM
 
 ## Runtime permissions
 
+The app installs from Android 12 (API 31), and three of the permissions below were introduced in
+Android 13 (API 33): `POST_NOTIFICATIONS`, `NEARBY_WIFI_DEVICES` and the `READ_MEDIA_*` trio. On an
+Android 12 handset those `pm grant` calls fail with `Operation not allowed: … Unknown permission`,
+and that is correct rather than a setup fault — the permission does not exist on that build.
+Notifications in particular are enabled by default there, so the app reports the grant as held and
+never asks for it. A provisioning script that grants everything must therefore tolerate a failure
+on those three lines, not abort on it.
+
 ```bash
-# Notifications (Android 13+)
+# Notifications (Android 13+; not present on Android 12 — notifications are on by default there)
 adb shell pm grant <app-id> android.permission.POST_NOTIFICATIONS
 
 # Camera and microphone

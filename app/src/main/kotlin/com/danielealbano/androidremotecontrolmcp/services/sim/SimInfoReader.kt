@@ -3,6 +3,7 @@ package com.danielealbano.androidremotecontrolmcp.services.sim
 import android.Manifest
 import android.content.Context
 import android.content.pm.PackageManager
+import android.os.Build
 import android.telephony.SubscriptionInfo
 import android.telephony.SubscriptionManager
 import android.util.Log
@@ -37,9 +38,10 @@ interface SimInfoReader {
  *
  * `TelephonyManager.getLine1Number()` is deprecated since API 33 and unreliable across OEMs; it
  * also cannot express multi-SIM. `SubscriptionManager.getActiveSubscriptionInfoList()` returns one
- * [SubscriptionInfo] per active SIM, and — on API 33+, which is this app's floor — the number is
- * read with `SubscriptionManager.getPhoneNumber(subscriptionId)`, the non-deprecated replacement
- * for `SubscriptionInfo.getNumber()`.
+ * [SubscriptionInfo] per active SIM, and the number is read with
+ * `SubscriptionManager.getPhoneNumber(subscriptionId)` on API 33+ — the non-deprecated replacement
+ * for `SubscriptionInfo.getNumber()` — falling back to `getNumber()` on the API 31/32 builds that
+ * predate it.
  *
  * Both permissions are checked here rather than trusting a throw, because an ungranted read
  * returns an empty list on some builds and a `SecurityException` on others — neither of which must
@@ -96,11 +98,13 @@ class SimInfoReaderImpl
             ContextCompat.checkSelfPermission(context, permission) == PackageManager.PERMISSION_GRANTED
 
         /**
-         * The number comes from `getPhoneNumber(subId)` — the sanctioned replacement for the
-         * deprecated `SubscriptionInfo.getNumber()`, and unconditional because this app's minSdk is
-         * 33, so the API is always present. A blank result is the number-not-provisioned case and
-         * is classified downstream, never here. The `@RequiresPermission` propagates the obligation
-         * to [read], which holds the guard.
+         * The number comes from `SubscriptionManager.getPhoneNumber(subId)` on API 33+ — the
+         * sanctioned replacement for `SubscriptionInfo.getNumber()` — and from `getNumber()` itself
+         * on API 31/32, where the replacement does not exist yet. The deprecated call is not a
+         * degradation there: it is the same value read from the same SIM record under the same two
+         * grants, and it is what every Android 12 build has. A blank result is the
+         * number-not-provisioned case and is classified downstream, never here. The
+         * `@RequiresPermission` propagates the obligation to [read], which holds the guard.
          *
          * `iccId` (`getIccId`) carries no lint permission gate: it returns a redacted/empty value
          * for a non-privileged caller rather than throwing, so a blank ICCID is normal on a retail
@@ -108,14 +112,27 @@ class SimInfoReaderImpl
          */
         @RequiresPermission(Manifest.permission.READ_PHONE_NUMBERS)
         private fun SubscriptionInfo.toSimSubscription(subscriptionManager: SubscriptionManager): SimSubscription {
-            val number = runCatching { subscriptionManager.getPhoneNumber(subscriptionId) }.getOrNull()
+            val msisdn = runCatching { readNumber(subscriptionManager) }.getOrNull()
             return SimSubscription(
                 subscriptionId = subscriptionId,
-                number = number,
+                number = msisdn,
                 carrierName = carrierName?.toString(),
                 iccId = runCatching { iccId }.getOrNull(),
             )
         }
+
+        /**
+         * The version branch itself, kept out of [toSimSubscription] so the deprecation suppression
+         * covers exactly the one legacy call and nothing else.
+         */
+        @RequiresPermission(Manifest.permission.READ_PHONE_NUMBERS)
+        private fun SubscriptionInfo.readNumber(subscriptionManager: SubscriptionManager): String? =
+            if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU) {
+                subscriptionManager.getPhoneNumber(subscriptionId)
+            } else {
+                @Suppress("DEPRECATION")
+                number
+            }
 
         companion object {
             private const val TAG = "MCP:SimInfo"

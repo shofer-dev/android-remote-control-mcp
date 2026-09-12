@@ -3,6 +3,7 @@ package com.danielealbano.androidremotecontrolmcp.services.apps
 import android.content.Context
 import android.content.pm.PackageManager
 import android.graphics.Bitmap
+import android.os.Build
 import androidx.core.graphics.drawable.toBitmap
 import com.danielealbano.androidremotecontrolmcp.utils.Logger
 import dagger.hilt.android.qualifiers.ApplicationContext
@@ -129,8 +130,7 @@ class AppIconCache
                 android.content.Intent(android.content.Intent.ACTION_MAIN).apply {
                     addCategory(android.content.Intent.CATEGORY_LAUNCHER)
                 }
-            return pm
-                .queryIntentActivities(launchIntent, PackageManager.ResolveInfoFlags.of(0))
+            return queryLaunchers(pm, launchIntent)
                 .mapNotNull { resolveInfo ->
                     val pkgName = resolveInfo.activityInfo?.packageName ?: return@mapNotNull null
                     val label = resolveInfo.loadLabel(pm)?.toString() ?: return@mapNotNull null
@@ -139,6 +139,24 @@ class AppIconCache
                 }.distinctBy { it.first }
                 .sortedBy { it.second.lowercase() }
         }
+
+        /**
+         * Resolves the launcher activities with no flags.
+         *
+         * API 33 replaced the `Int` flags overload with a typed `ResolveInfoFlags` one and
+         * deprecated the original; API 31/32 has only the original. The query is identical on both
+         * — zero flags — so this branch chooses a spelling, never a behaviour.
+         */
+        private fun queryLaunchers(
+            pm: PackageManager,
+            launchIntent: android.content.Intent,
+        ): List<android.content.pm.ResolveInfo> =
+            if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU) {
+                pm.queryIntentActivities(launchIntent, PackageManager.ResolveInfoFlags.of(0))
+            } else {
+                @Suppress("DEPRECATION")
+                pm.queryIntentActivities(launchIntent, 0)
+            }
 
         companion object {
             private const val TAG = "MCP:AppIconCache"

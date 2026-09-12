@@ -1363,7 +1363,7 @@ curl -X POST http://localhost:8080/mcp \
 
 ## 6. Text Input Tools
 
-Natural text input tools that use the Android AccessibilityService's `FLAG_INPUT_METHOD_EDITOR` + `AccessibilityInputConnection.commitText()` API (API 33+) for character-by-character typing that is indistinguishable from real IME input. `android_type_insert_text`, `android_type_replace_text` and `android_type_clear_text` require `node_id` (mandatory) and click the node to focus it; `android_type_append_text` takes it optionally and falls back to the field that currently holds input focus. All of them return the field content after the operation for verification.
+Natural text input tools that use the Android AccessibilityService's `FLAG_INPUT_METHOD_EDITOR` + `AccessibilityInputConnection.commitText()` API (API 33+) for character-by-character typing that is indistinguishable from real IME input. `android_type_insert_text`, `android_type_replace_text` and `android_type_clear_text` require `node_id` (mandatory) and click the node to focus it; `android_type_append_text` takes it optionally and falls back to the field that currently holds input focus. All of them return the field content after the operation for verification. The accessibility IME plane exists only from API 33, so on an Android 12 (API 31/32) handset these four tools report that no input connection is available; the `android_set_text` node action remains the way to write into a field there.
 
 All typing operations are serialized via a Mutex — concurrent MCP requests are queued, not interleaved.
 

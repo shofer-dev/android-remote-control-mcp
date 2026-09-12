@@ -93,6 +93,10 @@ enum class RequiredPermission(
      * device is attached and — while a session is driving — that it is being driven right now; the
      * watchdog's tap-to-reconnect fallback is a notification too. Denied, the device can still be
      * driven but can no longer TELL anyone, which is the one failure this app must not have.
+     *
+     * Audited only on API 33+, where the permission exists. Below it notifications are on by
+     * default and there is nothing to grant, so the check reports it held and this row never
+     * appears — see `PermissionUtils.isNotificationPermissionGranted`.
      */
     POST_NOTIFICATIONS(
         kind = PermissionKind.RUNTIME,

@@ -3,6 +3,7 @@ package com.danielealbano.androidremotecontrolmcp.services.notifications
 import android.app.Notification
 import android.content.Context
 import android.content.pm.PackageManager
+import android.os.Build
 import android.service.notification.StatusBarNotification
 import com.danielealbano.androidremotecontrolmcp.utils.Logger
 import java.util.concurrent.ConcurrentHashMap
@@ -10,6 +11,24 @@ import java.util.concurrent.ConcurrentHashMap
 object NotificationDataExtractor {
     private const val TAG = "MCP:NotifExtractor"
     private val appNameCache = ConcurrentHashMap<String, String>()
+
+    /**
+     * Reads an app's [android.content.pm.ApplicationInfo] with no flags.
+     *
+     * The typed `ApplicationInfoFlags` overload arrived in API 33 and is the only one that is not
+     * deprecated there; the `Int` overload it replaced still exists and is the only one API 31/32
+     * has. Both ask for exactly the same thing — flags of zero — so the branch is a spelling
+     * difference, not a behavioural one.
+     */
+    private fun applicationInfo(
+        pm: PackageManager,
+        packageName: String,
+    ) = if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU) {
+        pm.getApplicationInfo(packageName, PackageManager.ApplicationInfoFlags.of(0))
+    } else {
+        @Suppress("DEPRECATION")
+        pm.getApplicationInfo(packageName, 0)
+    }
 
     fun extract(
         sbn: StatusBarNotification,
@@ -21,10 +40,7 @@ object NotificationDataExtractor {
             appNameCache.getOrPut(sbn.packageName) {
                 val pm = context.packageManager
                 try {
-                    pm
-                        .getApplicationLabel(
-                            pm.getApplicationInfo(sbn.packageName, PackageManager.ApplicationInfoFlags.of(0)),
-                        ).toString()
+                    pm.getApplicationLabel(applicationInfo(pm, sbn.packageName)).toString()
                 } catch (_: PackageManager.NameNotFoundException) {
                     Logger.d(TAG, "App not found for ${sbn.packageName}, using package name")
                     sbn.packageName

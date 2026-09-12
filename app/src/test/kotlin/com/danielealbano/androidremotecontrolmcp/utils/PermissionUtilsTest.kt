@@ -4,6 +4,7 @@ import android.Manifest
 import android.content.ContentResolver
 import android.content.Context
 import android.content.pm.PackageManager
+import android.os.Build
 import android.provider.Settings
 import androidx.core.content.ContextCompat
 import io.mockk.every
@@ -111,7 +112,7 @@ class PermissionUtilsTest {
                 ContextCompat.checkSelfPermission(mockContext, Manifest.permission.POST_NOTIFICATIONS)
             } returns PackageManager.PERMISSION_GRANTED
 
-            assertTrue(PermissionUtils.isNotificationPermissionGranted(mockContext))
+            assertTrue(PermissionUtils.isNotificationPermissionGranted(mockContext, Build.VERSION_CODES.TIRAMISU))
         }
 
         @Test
@@ -120,7 +121,31 @@ class PermissionUtilsTest {
                 ContextCompat.checkSelfPermission(mockContext, Manifest.permission.POST_NOTIFICATIONS)
             } returns PackageManager.PERMISSION_DENIED
 
-            assertFalse(PermissionUtils.isNotificationPermissionGranted(mockContext))
+            assertFalse(PermissionUtils.isNotificationPermissionGranted(mockContext, Build.VERSION_CODES.TIRAMISU))
+        }
+
+        @Test
+        fun `returns true below API 33 without consulting the permission`() {
+            // The permission does not exist there, so checkSelfPermission would answer DENIED for a
+            // device that posts notifications perfectly well. Asking it at all is the bug.
+            every {
+                ContextCompat.checkSelfPermission(mockContext, Manifest.permission.POST_NOTIFICATIONS)
+            } returns PackageManager.PERMISSION_DENIED
+
+            assertTrue(PermissionUtils.isNotificationPermissionGranted(mockContext, Build.VERSION_CODES.S))
+
+            verify(exactly = 0) {
+                ContextCompat.checkSelfPermission(mockContext, Manifest.permission.POST_NOTIFICATIONS)
+            }
+        }
+
+        @Test
+        fun `returns true on API 32, the last build without the permission`() {
+            every {
+                ContextCompat.checkSelfPermission(mockContext, Manifest.permission.POST_NOTIFICATIONS)
+            } returns PackageManager.PERMISSION_DENIED
+
+            assertTrue(PermissionUtils.isNotificationPermissionGranted(mockContext, Build.VERSION_CODES.S_V2))
         }
     }
 
