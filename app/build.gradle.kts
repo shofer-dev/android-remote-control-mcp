@@ -271,6 +271,10 @@ android {
     lint {
         // QUERY_ALL_PACKAGES is required for app management tools (list/launch/force-stop)
         disable += "QueryAllPackagesPermission"
+        // REQUEST_IGNORE_BATTERY_OPTIMIZATIONS is a Play-store restriction, and this connector is
+        // sideloaded onto enrolled phones. The exemption is what lets the watchdog restart the
+        // connector from the background on Android 12+ (rationale in the manifest).
+        disable += "BatteryLife"
     }
 
     packaging {

@@ -135,6 +135,7 @@ The app declares the permissions below. **Normal** permissions are granted autom
 | `KILL_BACKGROUND_PROCESSES` | Normal | Stop background apps via app-management tools |
 | `ACCESS_WIFI_STATE` | Normal | Read WiFi state for the Event Channel |
 | `CHANGE_WIFI_STATE` | Normal | Manage WiFi for the Event Channel |
+| `REQUEST_IGNORE_BATTERY_OPTIMIZATIONS` | Normal | Ask, in one system dialog, to exempt this app from battery optimisation — what lets the watchdog restart the connector from the background |
 | `POST_NOTIFICATIONS` | Runtime | Show the foreground service notification (Android 13+ only — on Android 12 notifications are on by default and there is nothing to grant) |
 | `CAMERA` | Runtime | Camera photo/video MCP tools |
 | `RECORD_AUDIO` | Runtime | Audio capture for camera video tools |

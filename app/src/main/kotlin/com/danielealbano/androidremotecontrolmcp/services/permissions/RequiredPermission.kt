@@ -35,20 +35,23 @@ enum class PermissionCriticality {
 /**
  * Where the card's per-item button sends the holder.
  *
- * [KEEP_ALIVE_CARD] is the odd one out and deliberately carries no destination: battery
- * optimisation is already the subject of
- * [com.danielealbano.androidremotecontrolmcp.ui.components.ConnectorKeepAliveHintCard], which
- * explains the OEM problem properly and links to both the battery list and the vendor autostart
- * screen. The audit still EVALUATES it — it is load-bearing for the watchdog — but it renders as a
- * cross-reference instead of a second button that would take the holder to the same place with
- * half the explanation.
+ * EVERY remedy is actionable from the row it belongs to, and that is a rule rather than an
+ * accident. Battery optimisation used to be the exception — it rendered as a cross-reference to
+ * [com.danielealbano.androidremotecontrolmcp.ui.components.ConnectorKeepAliveHintCard] instead of
+ * a button, on the theory that the card explains the OEM problem better. In the holder's hands
+ * that read as a broken row: a finding with no way to act on it, next to four rows that act. The
+ * card stays — it is the only place vendor AUTOSTART is offered, which is a different control —
+ * but the row fires the per-app exemption dialog itself, like every other row.
+ *
+ * [RemedyRouter] turns one of these into the actual destination, because two of them have a
+ * fallback when the system screen they want is missing from a vendor build.
  */
 enum class PermissionRemedy {
     RUNTIME_REQUEST,
     ACCESSIBILITY_SETTINGS,
     DEVICE_ADMIN_ACTIVATION,
     NOTIFICATION_LISTENER_SETTINGS,
-    KEEP_ALIVE_CARD,
+    BATTERY_EXEMPTION_REQUEST,
 }
 
 /**
@@ -122,12 +125,16 @@ enum class RequiredPermission(
     /**
      * Not a permission the app holds but an exemption the holder grants, and the watchdog's
      * ability to revive a killed connector from the background depends on it (Android 12+ refuses
-     * a background foreground-service start otherwise). Rendered by the keep-alive card.
+     * a background foreground-service start otherwise).
+     *
+     * It is NOT vendor autostart, and the row's text says so: the two are separate controls, they
+     * are granted on separate screens, and a holder who turns on MIUI's autostart — as one did —
+     * is entitled to wonder why this row is still red.
      */
     BATTERY_OPTIMIZATION_EXEMPTION(
         kind = PermissionKind.SPECIAL_ACCESS,
         criticality = PermissionCriticality.OPERATIONAL,
-        remedy = PermissionRemedy.KEEP_ALIVE_CARD,
+        remedy = PermissionRemedy.BATTERY_EXEMPTION_REQUEST,
         labelRes = R.string.permission_audit_battery,
         reasonRes = R.string.permission_audit_battery_reason,
     ),

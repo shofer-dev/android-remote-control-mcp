@@ -81,7 +81,8 @@
     <string name="permission_audit_body_tools">The device can be operated, but the tools below are unavailable until they are granted.</string>
     <string name="permission_audit_fix">Fix</string>
     <string name="permission_audit_dismiss">Not now</string>
-    <string name="permission_audit_see_below">See the card below.</string>
+    <string name="permission_audit_manual_device_admin">This phone has no activation screen for device administrators, so Fix opens Security settings. Grant it there under Device admin apps.</string>
+    <string name="permission_audit_manual_battery">This phone has no per-app battery dialog, so Fix opens the battery optimisation list. Find JustCEO there and choose not to optimise it.</string>
     <string name="permission_audit_accessibility">Accessibility service</string>
     <string name="permission_audit_accessibility_reason">Reading the screen and performing taps. Nothing can be operated without it.</string>
     <string name="permission_audit_notifications">Notifications</string>
@@ -89,7 +90,7 @@
     <string name="permission_audit_device_admin">Device administrator</string>
     <string name="permission_audit_device_admin_reason">Letting your organisation lock or erase this device if it is lost or stolen.</string>
     <string name="permission_audit_battery">Battery optimisation exclusion</string>
-    <string name="permission_audit_battery_reason">Letting the connector restart itself after the system stops it.</string>
+    <string name="permission_audit_battery_reason">Letting the connector restart itself after the system stops it. This is the battery optimisation exclusion, which is a different setting from the vendor autostart permission — turning autostart on does not clear this row.</string>
     <string name="permission_audit_notification_listener">Notification access</string>
     <string name="permission_audit_notification_listener_reason">Reading and acting on the notifications this device receives.</string>
     <string name="permission_audit_camera">Camera</string>

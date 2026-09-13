@@ -42,18 +42,17 @@ object PermissionUtils {
             .any { it.equals(expectedComponentName, ignoreCase = true) }
     }
 
+    /** The Android Accessibility Settings screen. */
+    fun accessibilitySettingsIntent(): Intent = Intent(Settings.ACTION_ACCESSIBILITY_SETTINGS)
+
     /**
      * Opens the Android Accessibility Settings screen.
      *
-     * @param context Application context. Uses [Intent.FLAG_ACTIVITY_NEW_TASK]
-     *   so this can be called from non-Activity contexts.
+     * @param context Any context; [Intent.FLAG_ACTIVITY_NEW_TASK] is added only when it carries no
+     *   Activity (see [startSettingsActivity], where that rule and its MIUI history live).
      */
     fun openAccessibilitySettings(context: Context) {
-        val intent =
-            Intent(Settings.ACTION_ACCESSIBILITY_SETTINGS).apply {
-                addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
-            }
-        context.startActivity(intent)
+        context.startSettingsActivity(accessibilitySettingsIntent())
     }
 
     /**
@@ -152,17 +151,16 @@ object PermissionUtils {
             .any { it.equals(expectedComponentName, ignoreCase = true) }
     }
 
+    /** The Android Notification Listener Settings screen. */
+    fun notificationListenerSettingsIntent(): Intent = Intent(Settings.ACTION_NOTIFICATION_LISTENER_SETTINGS)
+
     /**
      * Opens the Android Notification Listener Settings screen.
      *
-     * @param context Application context. Uses [Intent.FLAG_ACTIVITY_NEW_TASK]
-     *   so this can be called from non-Activity contexts.
+     * @param context Any context; [Intent.FLAG_ACTIVITY_NEW_TASK] is added only when it carries no
+     *   Activity (see [startSettingsActivity], where that rule and its MIUI history live).
      */
     fun openNotificationListenerSettings(context: Context) {
-        val intent =
-            Intent(Settings.ACTION_NOTIFICATION_LISTENER_SETTINGS).apply {
-                addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
-            }
-        context.startActivity(intent)
+        context.startSettingsActivity(notificationListenerSettingsIntent())
     }
 }

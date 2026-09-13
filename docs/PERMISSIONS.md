@@ -15,9 +15,11 @@ Replace `<app-id>` with the application ID for your build:
 
 ## Permission categories
 
-- **Normal** — granted automatically at install. No command needed: `INTERNET`, `ACCESS_NETWORK_STATE`, `FOREGROUND_SERVICE`, `FOREGROUND_SERVICE_SPECIAL_USE`, `FOREGROUND_SERVICE_LOCATION`, `RECEIVE_BOOT_COMPLETED`, `QUERY_ALL_PACKAGES`, `KILL_BACKGROUND_PROCESSES`, `ACCESS_WIFI_STATE`, `CHANGE_WIFI_STATE`.
+- **Normal** — granted automatically at install. No command needed: `INTERNET`, `ACCESS_NETWORK_STATE`, `FOREGROUND_SERVICE`, `FOREGROUND_SERVICE_SPECIAL_USE`, `FOREGROUND_SERVICE_LOCATION`, `RECEIVE_BOOT_COMPLETED`, `QUERY_ALL_PACKAGES`, `KILL_BACKGROUND_PROCESSES`, `ACCESS_WIFI_STATE`, `CHANGE_WIFI_STATE`, `REQUEST_IGNORE_BATTERY_OPTIMIZATIONS` (the permission is
+  granted at install; the EXEMPTION it lets the app ask for is separate — see Special access).
 - **Runtime** — granted with `pm grant`.
-- **Special access** — granted with `settings put secure` / `cmd notification`, **not** `pm grant`.
+- **Special access** — granted with `settings put secure` / `cmd notification` / `dpm` /
+  `dumpsys deviceidle`, **not** `pm grant`.
 
 See the [Permissions Reference](../README.md#permissions-reference) in the README for what each permission is used for.
 
@@ -86,6 +88,34 @@ If `cmd notification allow_listener` is unavailable on your platform image, use 
 adb shell settings put secure enabled_notification_listeners \
   <app-id>/com.danielealbano.androidremotecontrolmcp.services.notifications.McpNotificationListenerService
 ```
+
+### Device administrator
+
+Required by the custody plane's `lock` and `wipe` device actions (`DevicePolicyManager`). The class
+package is unsuffixed on a debug build, exactly like the two services above.
+
+```bash
+adb shell dpm set-active-admin \
+  <app-id>/com.danielealbano.androidremotecontrolmcp.services.deviceadmin.PlatformDeviceAdminReceiver
+```
+
+The command fails on a device that already has a device owner, or where the shell may not manage
+admins. Grant it on the phone instead: the permissions card's **Fix** opens the system's activation
+screen directly.
+
+### Battery-optimisation exemption
+
+Required by the watchdog, which cannot start the connector's foreground service from the background
+without it on Android 12+. This is **not** vendor autostart — that is a separate control with no
+adb equivalent, and granting it does not produce this exemption.
+
+```bash
+adb shell dumpsys deviceidle whitelist +<app-id>
+```
+
+On the phone the same exemption is one tap: the permissions card's **Fix** fires the system dialog.
+Either way the checklist re-reads every grant when its screen resumes, so an exemption applied over
+adb clears its row without restarting the app.
 
 ## One-shot script
 

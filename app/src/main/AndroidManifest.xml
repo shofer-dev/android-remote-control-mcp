@@ -18,6 +18,20 @@
     <!-- Boot receiver -->
     <uses-permission android:name="android.permission.RECEIVE_BOOT_COMPLETED" />
 
+    <!--
+      Battery-optimisation exemption, asked for IN ONE TAP from the permissions checklist
+      (Settings.ACTION_REQUEST_IGNORE_BATTERY_OPTIMIZATIONS refuses to show its dialog without
+      this permission; the whole-device list needs none and is the fallback). The exemption is
+      what lets ConnectorWatchdogWorker start the connector's foreground service from the
+      background at all on Android 12+, so a connector without it stays dead until a human opens
+      the app.
+
+      Google Play restricts this permission to a short list of app categories; this connector is
+      not distributed through Play. It is sideloaded onto phones an organisation enrolls and
+      operates, which is the acknowledged trade recorded here rather than in a lint suppression.
+    -->
+    <uses-permission android:name="android.permission.REQUEST_IGNORE_BATTERY_OPTIMIZATIONS" />
+
     <!-- Notifications (Android 13+) -->
     <uses-permission android:name="android.permission.POST_NOTIFICATIONS" />
 

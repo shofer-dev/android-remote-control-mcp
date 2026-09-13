@@ -620,11 +620,26 @@ accessibility or device admin at all, which are component bindings.
 **OEM autostart is deliberately NOT audited** — no API answers "may this app start itself on this
 vendor's build", so it can only be advice. It stays an action on the keep-alive card.
 
-Two surfaces, evaluated on the same two ticks as the connector ensure (app foreground, watchdog):
+Two surfaces. The audit is re-evaluated on the two ticks the connector ensure uses (app foreground,
+watchdog) **and on every resume of the connector screen** — which is the tick that matters on a
+racked phone, where most grants arrive over adb from the host box (`dpm set-active-admin`,
+`dumpsys deviceidle whitelist +pkg`, `settings put secure`). Those never background the app, so the
+foreground hook cannot see them; without the resume tick a grant applied by the rack sat unreported
+until the next watchdog tick.
 
 - **`PermissionsHintCard`** lists every missing grant with a button to the exact place it is
-  granted. Battery optimisation renders as a cross-reference to the keep-alive card rather than a
-  second button to the same screen.
+  granted. **Every row acts** — battery optimisation fires the per-app exemption dialog itself
+  rather than pointing at the keep-alive card, because a finding the holder cannot act on where
+  they read it is indistinguishable from a broken button. The card stays: it is the only place
+  vendor autostart is offered, which is a different control, and the battery row's text says so.
+- **Where Fix goes is decided, not assumed** (`RemedyRouter`, pure and unit-tested). Two remedies
+  have a fallback for a vendor build that lacks the system prompt: device-admin activation falls
+  back to security settings and battery exemption to the device-wide list, and a row routed to a
+  fallback gains a sentence saying the holder has to finish by hand. The launch itself goes through
+  an activity-result launcher, so the audit re-reads however the screen ends — and adds
+  `FLAG_ACTIVITY_NEW_TASK` only when there is no Activity to launch from (`ActivityContext.kt`).
+  Doing it unconditionally is what made the device-admin button do nothing at all on MIUI: it made
+  every Fix a new-TASK launch, which a vendor background-start guard drops without an exception.
 - **A notification** (`permissions_channel`, low importance, ongoing) posts only when an
   OPERATIONAL grant is missing; tapping it opens `MainActivity` routed to the permissions screen.
   Re-posts are quiet for 15 minutes unless the operational set CHANGES, and it is cancelled the
