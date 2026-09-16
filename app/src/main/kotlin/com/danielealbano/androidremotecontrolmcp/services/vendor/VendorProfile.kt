@@ -49,6 +49,9 @@ import com.danielealbano.androidremotecontrolmcp.utils.startSettingsActivity
  * hidden-API reflection that this project forbids and modern Android blocks. The platform's
  * phone-host CAN read it over adb (`phone-host-agent/internal/phonepolicy`), and that is where any
  * such state must come from.
+ *
+ * Adding a vendor, every MIUI accommodation in this app, and what is deliberately not branched on a
+ * vendor: see `docs/VENDOR_SUPPORT.md`.
  */
 interface VendorProfile {
     /** Stable id for logs and for the docs to key against. */
