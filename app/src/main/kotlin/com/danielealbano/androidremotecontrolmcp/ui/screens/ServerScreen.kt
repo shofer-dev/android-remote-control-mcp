@@ -119,7 +119,6 @@ fun ServerScreen(
                 ConnectorKeepAliveHintCard(
                     onOpenAutostart = { OemKeepAliveSettings.openAutostart(context) },
                     onOpenBatterySettings = { OemKeepAliveSettings.openBatteryOptimization(context) },
-                    onDismiss = connectorViewModel::dismissKeepAliveHint,
                 )
             }
         }

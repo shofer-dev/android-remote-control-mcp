@@ -7,6 +7,9 @@ import com.danielealbano.androidremotecontrolmcp.services.connector.ConnectorEns
 import com.danielealbano.androidremotecontrolmcp.services.connector.ConnectorLiveness
 import com.danielealbano.androidremotecontrolmcp.services.connector.ConnectorProvisioning
 import com.danielealbano.androidremotecontrolmcp.services.connector.ConnectorStatus
+import com.danielealbano.androidremotecontrolmcp.services.permissions.PermissionAuditState
+import com.danielealbano.androidremotecontrolmcp.services.permissions.PermissionAuditor
+import com.danielealbano.androidremotecontrolmcp.services.permissions.RequiredPermission
 import com.danielealbano.androidremotecontrolmcp.utils.MonotonicClock
 import io.mockk.coVerify
 import io.mockk.every
@@ -37,12 +40,23 @@ class ConnectorViewModelTest {
     private val hintDismissedFlow = MutableStateFlow(false)
     private val connectorEnsure = mockk<ConnectorEnsure>(relaxed = true)
     private val provisioning = mockk<ConnectorProvisioning>(relaxed = true)
+    private val permissionAuditor = mockk<PermissionAuditor>(relaxed = true)
+
+    /**
+     * The audit the keep-alive card is now derived from. Seeded MISSING, because that is the state
+     * the card exists for — a phone that has never been granted the exemption.
+     */
+    private val auditFlow =
+        MutableStateFlow(
+            PermissionAuditState(missing = listOf(RequiredPermission.BATTERY_OPTIMIZATION_EXEMPTION)),
+        )
 
     @BeforeEach
     fun setup() {
         Dispatchers.setMain(testDispatcher)
         every { settingsRepository.connectorConfig } returns configFlow
         every { settingsRepository.connectorKeepAliveHintDismissed } returns hintDismissedFlow
+        every { permissionAuditor.state } returns auditFlow
     }
 
     @AfterEach
@@ -51,7 +65,13 @@ class ConnectorViewModelTest {
     }
 
     private fun newViewModel(): ConnectorViewModel =
-        ConnectorViewModel(settingsRepository, connectorEnsure, provisioning, MonotonicClock { NOW })
+        ConnectorViewModel(
+            settingsRepository,
+            connectorEnsure,
+            provisioning,
+            MonotonicClock { NOW },
+            permissionAuditor,
+        )
 
     @Nested
     @DisplayName("buildState")
@@ -599,10 +619,52 @@ class ConnectorViewModelTest {
             }
 
         @Test
-        fun `a dismissed hint stays dismissed`() =
+        fun `the card clears itself when the exemption is granted - no dismissal needed`() =
             runTest {
+                // The defect this replaces: the card was gated on a remembered dismissal and
+                // nothing else, so a holder who went and granted the setting came back to the same
+                // card with Dismiss as the only way out.
                 configFlow.value = ENROLLED_CONFIG
-                hintDismissedFlow.value = true
+                val viewModel = newViewModel()
+
+                viewModel.keepAliveHintVisible.test {
+                    assertFalse(awaitItem()) // stateIn's seed
+                    assertTrue(awaitItem())
+                    auditFlow.value = PermissionAuditState(missing = emptyList())
+                    assertFalse(awaitItem())
+                    cancelAndIgnoreRemainingEvents()
+                }
+            }
+
+        @Test
+        fun `the card comes back if the exemption is revoked later`() =
+            runTest {
+                // The half a permanent dismissal made impossible, and the one that matters: a grant
+                // withdrawn by a system update or a battery-saver sweep must be sayable again.
+                configFlow.value = ENROLLED_CONFIG
+                auditFlow.value = PermissionAuditState(missing = emptyList())
+                val viewModel = newViewModel()
+
+                viewModel.keepAliveHintVisible.test {
+                    assertFalse(awaitItem())
+                    auditFlow.value =
+                        PermissionAuditState(
+                            missing = listOf(RequiredPermission.BATTERY_OPTIMIZATION_EXEMPTION),
+                        )
+                    assertTrue(awaitItem())
+                    cancelAndIgnoreRemainingEvents()
+                }
+            }
+
+        @Test
+        fun `another missing grant does not raise the keep-alive card`() =
+            runTest {
+                // The card is about ONE setting. Accessibility has its own row on the permissions
+                // checklist, and a card that lit up for any finding would be a second, vaguer copy
+                // of that list.
+                configFlow.value = ENROLLED_CONFIG
+                auditFlow.value =
+                    PermissionAuditState(missing = listOf(RequiredPermission.ACCESSIBILITY_SERVICE))
                 val viewModel = newViewModel()
 
                 viewModel.keepAliveHintVisible.test {

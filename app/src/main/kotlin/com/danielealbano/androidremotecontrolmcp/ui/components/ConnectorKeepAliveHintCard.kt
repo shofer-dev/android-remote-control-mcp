@@ -35,16 +35,23 @@ private const val MIN_TOUCH_TARGET_DP = 48
  *
  * It is deliberately a low-key surface card rather than a dialog or a warning: neither setting is
  * required for the app to work, nothing is blocked on them, and a modal that interrupts a phone's
- * first attachment to say "your OEM might kill this later" is the wrong trade. Dismissing it is
- * remembered for good (`connector_keep_alive_hint_dismissed`), and it is shown only once the
- * device is enrolled — before that there is no connector to keep alive.
+ * first attachment to say "your OEM might kill this later" is the wrong trade. It is shown only
+ * once the device is enrolled — before that there is no connector to keep alive.
+ *
+ * It has NO dismiss control, and that is the point rather than an omission. It used to be a
+ * one-time hint gated on a remembered dismissal, which made it unsatisfiable: a holder who went
+ * and granted both settings came back to the same card, with Dismiss as the only way out and no
+ * sign the app had noticed. Visibility is now the battery-optimisation exemption's real state
+ * (`ConnectorViewModel.keepAliveHintVisible`), so the card clears itself when that is granted and
+ * returns if it is ever revoked — which a permanent silencer would have hidden, exactly when it
+ * mattered. The vendor autostart control stays on the card as a link, because Android exposes no
+ * way to read that setting and the body says so rather than implying the app is checking it.
  */
 @OptIn(ExperimentalLayoutApi::class)
 @Composable
 fun ConnectorKeepAliveHintCard(
     onOpenAutostart: () -> Unit,
     onOpenBatterySettings: () -> Unit,
-    onDismiss: () -> Unit,
     modifier: Modifier = Modifier,
 ) {
     Card(
@@ -70,9 +77,6 @@ fun ConnectorKeepAliveHintCard(
                 horizontalArrangement = Arrangement.End,
             ) {
                 val buttonModifier = Modifier.defaultMinSize(minHeight = MIN_TOUCH_TARGET_DP.dp)
-                TextButton(onClick = onDismiss, modifier = buttonModifier) {
-                    Text(stringResource(R.string.connector_keepalive_dismiss))
-                }
                 TextButton(onClick = onOpenBatterySettings, modifier = buttonModifier) {
                     Text(stringResource(R.string.connector_keepalive_battery))
                 }
@@ -91,7 +95,6 @@ private fun ConnectorKeepAliveHintCardPreview() {
         ConnectorKeepAliveHintCard(
             onOpenAutostart = {},
             onOpenBatterySettings = {},
-            onDismiss = {},
         )
     }
 }

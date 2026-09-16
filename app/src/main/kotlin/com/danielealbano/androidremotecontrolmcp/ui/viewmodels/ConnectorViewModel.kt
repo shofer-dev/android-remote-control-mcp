@@ -10,6 +10,8 @@ import com.danielealbano.androidremotecontrolmcp.services.connector.ConnectorPro
 import com.danielealbano.androidremotecontrolmcp.services.connector.ConnectorStatus
 import com.danielealbano.androidremotecontrolmcp.services.connector.PairingInput
 import com.danielealbano.androidremotecontrolmcp.services.connector.PlatformConnectorService
+import com.danielealbano.androidremotecontrolmcp.services.permissions.PermissionAuditor
+import com.danielealbano.androidremotecontrolmcp.services.permissions.RequiredPermission
 import com.danielealbano.androidremotecontrolmcp.utils.MonotonicClock
 import dagger.hilt.android.lifecycle.HiltViewModel
 import kotlinx.coroutines.delay
@@ -113,6 +115,7 @@ class ConnectorViewModel
         private val connectorEnsure: ConnectorEnsure,
         private val provisioning: ConnectorProvisioning,
         private val clock: MonotonicClock,
+        private val permissionAuditor: PermissionAuditor,
     ) : ViewModel() {
         private val ticks: Flow<Long> =
             flow {
@@ -132,16 +135,36 @@ class ConnectorViewModel
             }.stateIn(viewModelScope, SharingStarted.WhileSubscribed(FLOW_TIMEOUT_MS), ConnectorUiState())
 
         /**
-         * Whether to show the one-time "keep the connector alive" hint (OEM autostart and battery
-         * optimisation). Enrolment is the moment it becomes relevant — before that the device has
-         * no connector to keep alive — and dismissing it is remembered for good.
+         * Whether to show the "keep the connector alive" hint — DERIVED from the one thing in it
+         * the phone can actually be asked about.
+         *
+         * It used to be a one-time hint gated on a remembered dismissal and nothing else, which
+         * made it a card that could not be satisfied: a holder who went and granted both settings
+         * came back to the same card, with Dismiss as the only way out, and no way to tell whether
+         * the app had noticed. Worse, the dismissal was permanent, so the card could never return
+         * when a grant was revoked — which is exactly when it would be worth saying something.
+         *
+         * So visibility is now the audit's answer for the BATTERY-OPTIMISATION EXEMPTION, which
+         * Android exposes (`PowerManager.isIgnoringBatteryOptimizations`) and the permissions audit
+         * already reads. Granted → the card disappears on its own; revoked later → it comes back
+         * on its own. No dismissal, because there is nothing left to dismiss: the card now states a
+         * fact about the phone rather than an opinion about what the holder might not have done.
+         *
+         * VENDOR AUTOSTART IS NOT IN THIS CONDITION, and cannot be. Android publishes no API for
+         * it: it is a vendor setting (MIUI's security centre and its equivalents), reachable only
+         * through undocumented per-OEM, per-version reflection that fails silently when it drifts —
+         * so an app that claimed to know it would be confidently wrong on the phones it matters
+         * most for. The card therefore offers autostart as a link and says it cannot confirm it,
+         * rather than pretending a state it does not have. On a TETHERED phone the question is
+         * moot anyway: the phone-host applies the vendor autostart over USB at provisioning.
          */
         val keepAliveHintVisible: StateFlow<Boolean> =
             combine(
                 settingsRepository.connectorConfig,
-                settingsRepository.connectorKeepAliveHintDismissed,
-            ) { config, dismissed ->
-                config.isEnrolled && !dismissed
+                permissionAuditor.state,
+            ) { config, audit ->
+                config.isEnrolled &&
+                    audit.missing.contains(RequiredPermission.BATTERY_OPTIMIZATION_EXEMPTION)
             }.stateIn(viewModelScope, SharingStarted.WhileSubscribed(FLOW_TIMEOUT_MS), false)
 
         /**
@@ -232,7 +255,15 @@ class ConnectorViewModel
             viewModelScope.launch { provisioning.unprovision() }
         }
 
-        /** Remembers that the holder dismissed the keep-alive hint. */
+        /**
+         * Remembers that the holder dismissed the keep-alive hint.
+         *
+         * No longer wired to the card, which is state-driven now (see [keepAliveHintVisible]) — a
+         * permanent silencer would defeat the point of a card that is meant to come back when a
+         * grant is revoked. Kept because the preference it writes is DURABLE and already on every
+         * installed phone: the repository still owns it, and a future surface that genuinely wants
+         * a one-time acknowledgement has it rather than minting a second key beside it.
+         */
         fun dismissKeepAliveHint() {
             viewModelScope.launch { settingsRepository.dismissConnectorKeepAliveHint() }
         }
