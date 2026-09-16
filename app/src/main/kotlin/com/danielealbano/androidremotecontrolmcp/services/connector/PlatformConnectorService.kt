@@ -118,6 +118,7 @@ class PlatformConnectorService : Service() {
                 policyEnforcer = policyEnforcer,
                 activityIndicator = activityIndicator,
                 screenStream = screenStream,
+                screenLock = AndroidScreenLockMonitor(applicationContext),
                 clock = clock,
             )
         connector = platformConnector

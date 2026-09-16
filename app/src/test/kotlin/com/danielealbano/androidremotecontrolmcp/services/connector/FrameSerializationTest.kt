@@ -175,6 +175,28 @@ class FrameSerializationTest {
     }
 
     @Test
+    fun `an attach carrying the keyguard emits screen_locked, and false is emitted not dropped`() {
+        // `false` is a POSITIVE report — the one thing the gateway's refusal-derived inference can
+        // never express — so it must survive the omitempty contract. A serializer that dropped it
+        // would silently downgrade every unlocked phone to "the gateway has no idea".
+        val unlocked = encode(Frame(type = FrameType.ATTACH, phoneId = "uuid-1", screenLocked = false))
+        assertEquals(setOf("type", "phone_id", "screen_locked"), keys(unlocked))
+        assertTrue(unlocked.contains("\"screen_locked\":false"))
+
+        val locked = encode(Frame(type = FrameType.SCREEN_STATE, screenLocked = true))
+        assertEquals(setOf("type", "screen_locked"), keys(locked))
+        assertTrue(locked.contains("\"screen_locked\":true"))
+    }
+
+    @Test
+    fun `an attach from a phone whose OS could not be asked emits no screen_locked key`() {
+        // Null is the third state: unknown. Sending it as `false` would be the one unrecoverable
+        // lie — the gateway treats a reported `false` as authoritative and stops inferring.
+        val json = encode(Frame(type = FrameType.ATTACH, phoneId = "uuid-1", screenLocked = null))
+        assertFalse(json.contains("screen_locked"))
+    }
+
+    @Test
     fun `error frame decodes code and details`() {
         val frame =
             ConnectorJson.decodeFromString(

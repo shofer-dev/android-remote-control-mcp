@@ -136,6 +136,7 @@ class PlatformConnector(
     private val policyEnforcer: PolicyEnforcer,
     private val activityIndicator: RemoteActivityIndicator,
     private val screenStream: ScreenStreamController,
+    private val screenLock: ScreenLockMonitor,
     private val appVersion: String = BuildConfig.VERSION_NAME,
     private val clock: MonotonicClock = MonotonicClock { SystemClock.elapsedRealtime() },
 ) {
@@ -354,6 +355,7 @@ class PlatformConnector(
         val identityWatch = startIdentityWatch(events)
         val capabilityWatch = startCapabilityWatch()
         var heartbeat: Job? = null
+        var screenLockWatch: Job? = null
         var windowWatchdog: Job? = null
         var staleWatchdog: Job? = null
         // Every server answer rearms the watchdog, so silence — not a missing FIN — is what ends
@@ -402,6 +404,13 @@ class PlatformConnector(
                                     onAttached = {
                                         heartbeat = startHeartbeat(ws)
                                         staleWatchdog = armStaleWatchdog(events)
+                                        // Started HERE rather than beside the capability watch
+                                        // above: the gateway answers `bad-frame` to a
+                                        // screen_state before attach, and this flow emits its
+                                        // current value the moment it is collected. That first
+                                        // emission is not waste — it closes the gap between
+                                        // building the attach frame and the attach completing.
+                                        screenLockWatch = startScreenLockWatch()
                                     },
                                 ) {
                                     windowWatchdog?.cancel()
@@ -429,6 +438,10 @@ class PlatformConnector(
             // would encode into a void with the OS indicator lit and nobody watching.
             stopScreenStream(Frame(type = FrameType.STREAM_STOP))
             heartbeat?.cancel()
+            // The keyguard watch dies with the socket: the gateway drops the reported state when
+            // the connection goes (it describes a phone nobody can see any more), and a receiver
+            // left registered would be a leak per reconnect.
+            screenLockWatch?.cancel()
             windowWatchdog?.cancel()
             staleWatchdog?.cancel()
             // The policy dies with the socket that delivered it: a reconnect refuses every
@@ -913,13 +926,34 @@ class PlatformConnector(
             }
         }
 
-    /** The attach frame, carrying whatever this phone can do at this instant. */
+    /**
+     * Re-states the keyguard whenever it changes under a live socket.
+     *
+     * The platform's alternative is inferring lockedness from this connector's own refusals, which
+     * cannot express "unlocked" and clears only when a command succeeds — so without this a phone
+     * unlocked at the rack goes on being displayed as locked until somebody sends it something.
+     * Skipped entirely on a phone whose OS will not answer [ScreenLockMonitor.current]: the flow
+     * emits nothing, and the platform keeps the old inference rather than being told a guess.
+     */
+    private fun startScreenLockWatch(): Job =
+        scope.launch {
+            screenLock.states().collect { locked ->
+                send(Frame(type = FrameType.SCREEN_STATE, screenLocked = locked))
+            }
+        }
+
+    /**
+     * The attach frame, carrying whatever this phone can do at this instant — and what its
+     * keyguard is doing, so the platform knows before the first command rather than one broadcast
+     * later. A phone whose OS cannot be asked sends no `screen_locked` at all.
+     */
     private fun attachFrame(phoneId: String = livePhoneId): Frame =
         Frame(
             type = FrameType.ATTACH,
             phoneId = phoneId,
             appVersion = appVersion,
             capabilities = capabilities(),
+            screenLocked = screenLock.current(),
         )
 
     /**

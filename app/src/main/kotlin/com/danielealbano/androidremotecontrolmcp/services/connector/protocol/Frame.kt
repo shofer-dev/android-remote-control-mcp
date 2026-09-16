@@ -61,6 +61,14 @@ data class Frame(
     val details: String? = null,
     @SerialName("last_seen") val lastSeen: String? = null,
     val capabilities: List<String>? = null,
+    /**
+     * This phone's keyguard, on the attach frame and on every [FrameType.SCREEN_STATE] frame
+     * (`protocol.go` `Frame.ScreenLocked`). NULL is a third state and is sent as an absent field:
+     * it means the OS could not be asked, and the platform then falls back to inferring lockedness
+     * from `policy-screen-locked` refusals. Never guess `false` here — the gateway treats a
+     * reported `false` as authoritative and stops inferring.
+     */
+    @SerialName("screen_locked") val screenLocked: Boolean? = null,
 )
 
 /**
@@ -96,6 +104,14 @@ object FrameType {
      * video without waiting for a reconnect that may be hours away.
      */
     const val CAPABILITIES = "capabilities"
+
+    /**
+     * The keyguard changed under a live socket ([Frame.screenLocked]). The connector sends it so a
+     * handset locked or unlocked mid-session is shown as such AT ONCE — without it the platform
+     * can only infer lockedness from refusals, which never expresses "unlocked" and clears only
+     * on the next command that succeeds.
+     */
+    const val SCREEN_STATE = "screen_state"
 
     // Gateway → device
     const val TERMS = "terms"

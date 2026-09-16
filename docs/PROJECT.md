@@ -556,6 +556,19 @@ re-states it the moment that changes, so a phone armed mid-session is offered vi
 for a reconnect. The vocabulary has no negative form: absent means cannot. A phone that advertises
 nothing is served the frame poll, which is why the poll path remains.
 
+**The keyguard is told the same way** (`ScreenLockMonitor`). `attach` carries `screen_locked`, and a
+`screen_state` frame re-states it on every change, so the platform's "screen locked" label follows
+the handset instead of trailing it: without this the gateway can only infer lockedness from this
+connector's own `policy-screen-locked` refusals, which never expresses "unlocked" and clears only
+when a command succeeds — so a phone unlocked at the rack went on being displayed as locked.
+Nothing in Android broadcasts "the keyguard changed", so the monitor watches the three moments it
+changes around (`ACTION_SCREEN_OFF`, `ACTION_SCREEN_ON`, `ACTION_USER_PRESENT`) and RE-READS
+`KeyguardManager` on each — a wake-and-unlock fires two of them and only the re-read is right both
+times. All three are registered-receiver-only broadcasts, which is why the watch is tied to the
+connector's socket rather than declared in the manifest. Unlike the capability set this field is
+three-state: a phone whose OS will not answer sends nothing, never a guessed `false`, because the
+platform treats a reported `false` as authoritative and stops inferring.
+
 The wire framing is FROZEN by the console's viewer, which is shared with two other device classes:
 a 94-byte metadata block carrying the display's REAL pixel size (the coordinate space every tap is
 mapped through), then one Annex-B NAL per binary message behind a four-byte start code.
