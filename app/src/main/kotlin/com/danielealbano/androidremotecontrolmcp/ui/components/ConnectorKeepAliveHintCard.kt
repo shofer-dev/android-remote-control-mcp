@@ -44,13 +44,19 @@ private const val MIN_TOUCH_TARGET_DP = 48
  * sign the app had noticed. Visibility is now the battery-optimisation exemption's real state
  * (`ConnectorViewModel.keepAliveHintVisible`), so the card clears itself when that is granted and
  * returns if it is ever revoked — which a permanent silencer would have hidden, exactly when it
- * mattered. The vendor autostart control stays on the card as a link, because Android exposes no
- * way to read that setting and the body says so rather than implying the app is checking it.
+ * mattered.
+ *
+ * The vendor autostart half is OPTIONAL, and that is the whole reason [onOpenAutostart] is
+ * nullable: most phones have no such screen, and a null says so. A card given null shows neither
+ * the button nor the sentence about it, because a link that goes nowhere and a paragraph about a
+ * setting the phone does not have are the same defect — the app claiming knowledge it has not got.
+ * Where the screen does exist the sentence still admits that Android exposes no way to READ the
+ * setting, so the holder is told to check it rather than led to believe the app is watching it.
  */
 @OptIn(ExperimentalLayoutApi::class)
 @Composable
 fun ConnectorKeepAliveHintCard(
-    onOpenAutostart: () -> Unit,
+    onOpenAutostart: (() -> Unit)?,
     onOpenBatterySettings: () -> Unit,
     modifier: Modifier = Modifier,
 ) {
@@ -69,9 +75,17 @@ fun ConnectorKeepAliveHintCard(
                 style = MaterialTheme.typography.bodyMedium,
                 color = MaterialTheme.colorScheme.onSurfaceVariant,
             )
+            if (onOpenAutostart != null) {
+                Spacer(Modifier.height(8.dp))
+                Text(
+                    text = stringResource(R.string.connector_keepalive_body_autostart),
+                    style = MaterialTheme.typography.bodyMedium,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                )
+            }
             Spacer(Modifier.height(8.dp))
-            // FlowRow so the three labels wrap instead of truncating on a narrow screen or at a
-            // large font scale.
+            // FlowRow so the labels wrap instead of truncating on a narrow screen or at a large
+            // font scale.
             FlowRow(
                 modifier = Modifier.fillMaxWidth(),
                 horizontalArrangement = Arrangement.End,
@@ -80,20 +94,33 @@ fun ConnectorKeepAliveHintCard(
                 TextButton(onClick = onOpenBatterySettings, modifier = buttonModifier) {
                     Text(stringResource(R.string.connector_keepalive_battery))
                 }
-                TextButton(onClick = onOpenAutostart, modifier = buttonModifier) {
-                    Text(stringResource(R.string.connector_keepalive_autostart))
+                if (onOpenAutostart != null) {
+                    TextButton(onClick = onOpenAutostart, modifier = buttonModifier) {
+                        Text(stringResource(R.string.connector_keepalive_autostart))
+                    }
                 }
             }
         }
     }
 }
 
-@Preview(showBackground = true)
+@Preview(showBackground = true, name = "With a vendor autostart screen")
 @Composable
 private fun ConnectorKeepAliveHintCardPreview() {
     AndroidRemoteControlMcpTheme {
         ConnectorKeepAliveHintCard(
             onOpenAutostart = {},
+            onOpenBatterySettings = {},
+        )
+    }
+}
+
+@Preview(showBackground = true, name = "Stock Android, no autostart screen")
+@Composable
+private fun ConnectorKeepAliveHintCardNoAutostartPreview() {
+    AndroidRemoteControlMcpTheme {
+        ConnectorKeepAliveHintCard(
+            onOpenAutostart = null,
             onOpenBatterySettings = {},
         )
     }

@@ -37,6 +37,7 @@ import com.danielealbano.androidremotecontrolmcp.services.permissions.RemedyCapa
 import com.danielealbano.androidremotecontrolmcp.services.permissions.RemedyDestination
 import com.danielealbano.androidremotecontrolmcp.services.permissions.RemedyRouter
 import com.danielealbano.androidremotecontrolmcp.services.permissions.RequiredPermission
+import com.danielealbano.androidremotecontrolmcp.services.vendor.VendorProfiles
 import com.danielealbano.androidremotecontrolmcp.ui.components.ConnectorKeepAliveHintCard
 import com.danielealbano.androidremotecontrolmcp.ui.components.ConnectorPairingCard
 import com.danielealbano.androidremotecontrolmcp.ui.components.ConnectorPairingDialog
@@ -76,6 +77,12 @@ fun ServerScreen(
     val keepAliveHintVisible by connectorViewModel.keepAliveHintVisible.collectAsStateWithLifecycle()
     val screenStreamArmed by screenStreamViewModel.armed.collectAsStateWithLifecycle()
     val context = LocalContext.current
+
+    // Read once, for the same reason the audit reads its capabilities once: whether this build has
+    // a vendor autostart screen cannot change while the screen is up, and asking `PackageManager`
+    // per recomposition would be a resolution storm. Null callback = no screen = no control, which
+    // is what keeps the keep-alive card honest on stock Android.
+    val autostartAvailable = remember(context) { VendorProfiles.hasAutostartScreen(context) }
 
     Column(modifier = modifier.fillMaxSize()) {
         TopAppBar(
@@ -117,7 +124,12 @@ fun ServerScreen(
             if (keepAliveHintVisible) {
                 Spacer(Modifier.height(16.dp))
                 ConnectorKeepAliveHintCard(
-                    onOpenAutostart = { OemKeepAliveSettings.openAutostart(context) },
+                    onOpenAutostart =
+                        if (autostartAvailable) {
+                            { VendorProfiles.openAutostart(context) }
+                        } else {
+                            null
+                        },
                     onOpenBatterySettings = { OemKeepAliveSettings.openBatteryOptimization(context) },
                 )
             }

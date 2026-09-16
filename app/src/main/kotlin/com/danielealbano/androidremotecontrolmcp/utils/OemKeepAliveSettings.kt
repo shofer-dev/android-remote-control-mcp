@@ -1,7 +1,6 @@
 package com.danielealbano.androidremotecontrolmcp.utils
 
 import android.app.admin.DevicePolicyManager
-import android.content.ComponentName
 import android.content.Context
 import android.content.Intent
 import android.net.Uri
@@ -26,29 +25,20 @@ import com.danielealbano.androidremotecontrolmcp.services.deviceadmin.PlatformDe
  * what a checklist row must fire. It needs `REQUEST_IGNORE_BATTERY_OPTIMIZATIONS` in the manifest.
  * [batteryOptimizationListIntent] is the whole-device LIST, where the holder has to find this app
  * among every other; it needs no permission and is the fallback when the dialog does not resolve.
- * Neither has anything to do with vendor AUTOSTART ([autostartIntent]), which is a third control
- * entirely — granting autostart does not exempt an app from doze, and the audit row says so.
+ * Neither has anything to do with vendor AUTOSTART, which is a third control entirely — granting
+ * autostart does not exempt an app from doze, and the audit row says so.
  *
- * ## Autostart has no platform intent at all
+ * ## Every screen here is a PLATFORM screen
  *
- * It is a vendor screen, so the only way in is the component name that vendor happens to use. Only
- * MIUI/HyperOS is named here — the phone whose killed connector this exists for — and the
- * component is declared in the manifest's `<queries>` so package-visibility filtering does not
- * hide it. Everything else falls back to this app's own details page, which is one tap from the
- * vendor's per-app controls on every skin.
+ * That is what makes them writable once: each is an `android.provider.Settings` action or a
+ * `DevicePolicyManager` one, so the same intent is the right answer on every build. Vendor screens
+ * are the opposite — they exist only as the component name that vendor happens to use — and they
+ * live behind the seam in
+ * [com.danielealbano.androidremotecontrolmcp.services.vendor.VendorProfiles], which is also the one
+ * place that can answer whether such a screen exists here at all.
  */
 object OemKeepAliveSettings {
     private const val TAG = "MCP:OemKeepAlive"
-
-    /** MIUI / HyperOS "Autostart" (Security app). Absent on stock Android and on other skins. */
-    private val MIUI_AUTOSTART =
-        ComponentName(
-            "com.miui.securitycenter",
-            "com.miui.permcenter.autostart.AutoStartManagementActivity",
-        )
-
-    /** The vendor autostart screen. Resolves on MIUI/HyperOS and nowhere else. */
-    fun autostartIntent(): Intent = Intent().apply { component = MIUI_AUTOSTART }
 
     /** The system's battery-optimisation LIST — every app, no permission required. */
     fun batteryOptimizationListIntent(): Intent = Intent(Settings.ACTION_IGNORE_BATTERY_OPTIMIZATION_SETTINGS)
@@ -104,16 +94,6 @@ object OemKeepAliveSettings {
         Intent(Settings.ACTION_APPLICATION_DETAILS_SETTINGS).apply {
             data = Uri.fromParts("package", context.packageName, null)
         }
-
-    /**
-     * Opens the vendor's autostart screen, falling back to this app's system settings page when
-     * the device has none (or hides it).
-     */
-    fun openAutostart(context: Context) {
-        if (context.startSettingsActivity(autostartIntent())) return
-        Log.i(TAG, "No vendor autostart screen; falling back to application details")
-        openAppDetails(context)
-    }
 
     /** Opens the system's battery-optimisation list. */
     fun openBatteryOptimization(context: Context) {

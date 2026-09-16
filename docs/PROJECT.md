@@ -631,7 +631,8 @@ accessibility or device admin at all, which are component bindings.
 | `CAMERA` / `RECORD_AUDIO` / `ACCESS_FINE_LOCATION` | runtime | tool surface | those tool families; location also backs the `locate` device action |
 
 **OEM autostart is deliberately NOT audited** — no API answers "may this app start itself on this
-vendor's build", so it can only be advice. It stays an action on the keep-alive card.
+vendor's build", so it can only be advice. It stays an action on the keep-alive card, and only on a
+phone that HAS such a screen (see "Vendor differences live behind one seam").
 
 Two surfaces. The audit is re-evaluated on the two ticks the connector ensure uses (app foreground,
 watchdog) **and on every resume of the connector screen** — which is the tick that matters on a
@@ -644,7 +645,8 @@ until the next watchdog tick.
   granted. **Every row acts** — battery optimisation fires the per-app exemption dialog itself
   rather than pointing at the keep-alive card, because a finding the holder cannot act on where
   they read it is indistinguishable from a broken button. The card stays: it is the only place
-  vendor autostart is offered, which is a different control, and the battery row's text says so.
+  vendor autostart is offered — on the phones that have it — which is a different control, and the
+  battery row's text says so.
 - **Where Fix goes is decided, not assumed** (`RemedyRouter`, pure and unit-tested). Two remedies
   have a fallback for a vendor build that lacks the system prompt: device-admin activation falls
   back to security settings and battery exemption to the device-wide list, and a row routed to a
@@ -659,10 +661,41 @@ until the next watchdog tick.
   moment the audit comes back clean. When `POST_NOTIFICATIONS` is itself the missing grant the
   card is the only surface — a notification cannot ask for the right to notify.
 
-**Dismissal is session-scoped, unlike the keep-alive hint's.** That hint is advice about a risk and
-is dismissed forever; a missing required grant is a fault that is true right now, so "Not now"
-lasts until the next evaluation. Persisting it would let a device sit un-drivable indefinitely
-with every surface claiming it is fine.
+**Dismissal is session-scoped, and the keep-alive hint has none at all.** That hint clears itself
+when the battery-optimisation exclusion is granted and returns if it is revoked, so there is
+nothing to dismiss; a missing required grant is a fault that is true right now, so "Not now" lasts
+until the next evaluation. Persisting either would let a device sit un-drivable indefinitely with
+every surface claiming it is fine.
+
+### Vendor differences live behind one seam
+
+Everything a stock Android device needs is a platform API — `PowerManager` for the battery
+exemption, `DevicePolicyManager` for device admin — and none of it belongs to a vendor. The residue
+that does is **autostart**: MIUI/HyperOS, ColorOS, EMUI, Funtouch and One UI each ship their own
+"may this app start itself" control, in their own app, under their own component name, with no
+platform intent and no platform query.
+
+`services/vendor/VendorProfile.kt` holds it. A `VendorProfile` is one skin's quirks as one object
+(`MiuiVendorProfile` is the reference phone's; `GenericVendorProfile` is stock Android, and is a
+real profile rather than a null so no call site carries a "no vendor" branch), and supporting the
+next phone is a new object in `VendorProfiles.known` rather than a new branch in five places. The
+hard-coded component names exist ONLY there — `OemKeepAliveSettings` keeps the platform screens and
+nothing else.
+
+**Selection is by RESOLVABILITY, never by brand string.** `Build.MANUFACTURER` only ORDERS the
+candidates; a profile applies when `PackageManager` says a screen it names actually resolves. A
+hard-coded list of vendor spellings is wrong for rebrands (Redmi, POCO), regional variants, custom
+ROMs carrying a vendor's security app, and every OEM nobody listed — and it fails silently, as a
+button that goes nowhere. Every component a profile names MUST also appear in the manifest's
+`<queries>`, or package-visibility filtering hides it and the screen looks absent on a phone that
+has it.
+
+**`autostartIntent` returns null when there is none, and the caller must NOT offer the control.**
+`VendorProfiles.hasAutostartScreen` is that gate: `ServerScreen` reads it once and hands
+`ConnectorKeepAliveHintCard` a null callback when it is false, which drops both the button and the
+sentence about autostart from the card. A profile never claims to know whether the vendor setting
+is ON — Android exposes no API for it, MIUI's op has no public name, and the platform's phone-host
+reads it over adb instead (`phone-host-agent/internal/phonepolicy`).
 
 ### Threading Rules
 
@@ -728,7 +761,7 @@ with every surface claiming it is fine.
 
 MainScreen hosts three tabs — Connector, Settings, About.
 
-- **Connector** (`ServerScreen`): a needs-attention area, then — on a phone that holds no platform identity — `ConnectorPairingCard`, whose control opens `ConnectorPairingDialog` (scan the console's pairing code, or type the edge host and code; see "How a phone is paired with the platform"), then `ConnectorStatusCard` — the platform link's state (grounded in the gateway's own heartbeat), edge host, short device id, enrolment, the age of the last platform heartbeat, attach uptime, a Start/Stop control, and — whenever the device holds an identity, which includes every state in which the platform is refusing it — a confirmed **Unprovision** control that forgets the identity so the phone can be provisioned again (see "Platform identity, and the two ways it ends"). An explicit Stop is durable and vetoes every self-heal path (see "Platform connector lifecycle"), so the card says so underneath rather than leaving a deliberate stop looking like a failure. The needs-attention area above it is `PermissionsHintCard` (the permissions audit — see below); below it, `ScreenStreamCard` — the holder's Enable/Disable control for remote screen viewing, which is where the one screen-capture consent is taken (see "Remote screen streaming"); and, once the device is enrolled, a dismissible `ConnectorKeepAliveHintCard` linking to the OEM autostart screen and the battery-optimisation list.
+- **Connector** (`ServerScreen`): a needs-attention area, then — on a phone that holds no platform identity — `ConnectorPairingCard`, whose control opens `ConnectorPairingDialog` (scan the console's pairing code, or type the edge host and code; see "How a phone is paired with the platform"), then `ConnectorStatusCard` — the platform link's state (grounded in the gateway's own heartbeat), edge host, short device id, enrolment, the age of the last platform heartbeat, attach uptime, a Start/Stop control, and — whenever the device holds an identity, which includes every state in which the platform is refusing it — a confirmed **Unprovision** control that forgets the identity so the phone can be provisioned again (see "Platform identity, and the two ways it ends"). An explicit Stop is durable and vetoes every self-heal path (see "Platform connector lifecycle"), so the card says so underneath rather than leaving a deliberate stop looking like a failure. The needs-attention area above it is `PermissionsHintCard` (the permissions audit — see below); below it, `ScreenStreamCard` — the holder's Enable/Disable control for remote screen viewing, which is where the one screen-capture consent is taken (see "Remote screen streaming"); and, once the device is enrolled, `ConnectorKeepAliveHintCard` — the battery-optimisation list always, and the vendor autostart screen only on a phone where one resolves (see "Vendor differences live behind one seam").
 - **Settings** (`SettingsIndexScreen` + a nested NavHost): MCP Tools, Permissions, Storage.
 - **About**: app name, build version, what the app is, and the upstream MIT acknowledgment with the license text in a dialog.
 

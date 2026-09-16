@@ -69,7 +69,8 @@
     <string name="notification_connector_revive_title">Platform Connector stopped</string>
     <string name="notification_connector_revive_text">This device is no longer attached to JustCEO. Tap to reconnect it.</string>
     <string name="connector_keepalive_title">Keep the connector running</string>
-    <string name="connector_keepalive_body">Some phones stop background apps to save power, which detaches this device without warning. Two settings prevent it. The battery-optimisation exclusion is missing right now — this card is showing because of it, and disappears by itself once it is granted. The vendor autostart permission is the other one, and Android gives apps no way to read it, so this card cannot tell you whether it is on; if your phone has that setting, turn it on too.</string>
+    <string name="connector_keepalive_body">Some phones stop background apps to save power, which detaches this device without warning. The battery-optimisation exclusion prevents that, and it is missing right now — this card is showing because of it, and disappears by itself once it is granted.</string>
+    <string name="connector_keepalive_body_autostart">This phone also has a vendor autostart setting, which decides whether the app may start itself again after a reboot. Android gives apps no way to read that setting, so this card cannot tell you whether it is on; open it and check that this app is allowed.</string>
     <string name="connector_keepalive_autostart">Autostart settings</string>
     <string name="connector_keepalive_battery">Battery settings</string>
     <string name="connector_keepalive_dismiss">Dismiss</string>
