@@ -73,7 +73,6 @@
     <string name="connector_keepalive_body_autostart">This phone also has a vendor autostart setting, which decides whether the app may start itself again after a reboot. Android gives apps no way to read that setting, so this card cannot tell you whether it is on; open it and check that this app is allowed.</string>
     <string name="connector_keepalive_autostart">Autostart settings</string>
     <string name="connector_keepalive_battery">Battery settings</string>
-    <string name="connector_keepalive_dismiss">Dismiss</string>
     <string name="notification_channel_permissions_name">Permissions</string>
     <string name="notification_permissions_title">JustCEO needs permissions to operate this device</string>
     <string name="notification_permissions_text">Missing: %1$s. Tap to review and grant them.</string>
