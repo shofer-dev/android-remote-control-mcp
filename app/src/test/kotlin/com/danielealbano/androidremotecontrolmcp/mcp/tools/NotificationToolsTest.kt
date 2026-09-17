@@ -3,11 +3,13 @@ package com.danielealbano.androidremotecontrolmcp.mcp.tools
 import com.danielealbano.androidremotecontrolmcp.mcp.McpToolException
 import com.danielealbano.androidremotecontrolmcp.services.notifications.NotificationActionData
 import com.danielealbano.androidremotecontrolmcp.services.notifications.NotificationData
+import com.danielealbano.androidremotecontrolmcp.services.notifications.NotificationPoster
 import com.danielealbano.androidremotecontrolmcp.services.notifications.NotificationProvider
 import io.mockk.coEvery
 import io.mockk.coVerify
 import io.mockk.every
 import io.mockk.mockk
+import io.mockk.verify
 import io.modelcontextprotocol.kotlin.sdk.types.TextContent
 import kotlinx.coroutines.test.runTest
 import kotlinx.serialization.json.Json
@@ -17,6 +19,8 @@ import kotlinx.serialization.json.jsonObject
 import kotlinx.serialization.json.jsonPrimitive
 import kotlinx.serialization.json.put
 import org.junit.jupiter.api.Assertions.assertEquals
+import org.junit.jupiter.api.Assertions.assertFalse
+import org.junit.jupiter.api.Assertions.assertTrue
 import org.junit.jupiter.api.DisplayName
 import org.junit.jupiter.api.Nested
 import org.junit.jupiter.api.Test
@@ -792,5 +796,176 @@ class NotificationToolsTest {
                     )
                 }
             }
+    }
+
+    // ─────────────────────────────────────────────────────────────────────
+    // NotificationPostHandler
+    // ─────────────────────────────────────────────────────────────────────
+
+    @Nested
+    @DisplayName("NotificationPostHandler")
+    inner class NotificationPostTests {
+        private fun createPoster(): NotificationPoster = mockk()
+
+        @Test
+        @DisplayName("when notifications are disabled throws PermissionDenied")
+        fun whenNotificationsDisabledThrowsPermissionDenied() {
+            val poster = createPoster()
+            every { poster.areNotificationsEnabled() } returns false
+            val handler = NotificationPostHandler(poster)
+
+            assertThrows<McpToolException.PermissionDenied> {
+                handler.execute(buildJsonObject { put("message", "The gate code changed") })
+            }
+            verify(exactly = 0) { poster.post(any(), any()) }
+        }
+
+        @Test
+        @DisplayName("posts the message and confirms with the notification id")
+        fun postsTheMessageAndConfirms() {
+            val poster = createPoster()
+            every { poster.areNotificationsEnabled() } returns true
+            every { poster.post("Delivery", "The gate code changed") } returns Result.success(2001)
+            val handler = NotificationPostHandler(poster)
+
+            val result =
+                handler.execute(
+                    buildJsonObject {
+                        put("title", "Delivery")
+                        put("message", "The gate code changed")
+                    },
+                )
+
+            val text = (result.content[0] as TextContent).text!!
+            assertTrue(text.contains("2001"), "the confirmation names the notification id: $text")
+            verify { poster.post("Delivery", "The gate code changed") }
+        }
+
+        @Test
+        @DisplayName("the confirmation carries no untrusted-content warning")
+        fun confirmationCarriesNoUntrustedWarning() {
+            val poster = createPoster()
+            every { poster.areNotificationsEnabled() } returns true
+            every { poster.post(any(), any()) } returns Result.success(2002)
+            val handler = NotificationPostHandler(poster)
+
+            val result = handler.execute(buildJsonObject { put("message", "hello") })
+
+            val text = (result.content[0] as TextContent).text!!
+            assertFalse(
+                text.contains(McpToolUtils.UNTRUSTED_CONTENT_WARNING),
+                "an action tool returns only server-generated text",
+            )
+        }
+
+        @Test
+        @DisplayName("an absent title defaults to JustCEO")
+        fun absentTitleDefaults() {
+            val poster = createPoster()
+            every { poster.areNotificationsEnabled() } returns true
+            every { poster.post(any(), any()) } returns Result.success(2003)
+            val handler = NotificationPostHandler(poster)
+
+            handler.execute(buildJsonObject { put("message", "hello") })
+
+            verify { poster.post("JustCEO", "hello") }
+        }
+
+        @Test
+        @DisplayName("an empty title falls back to the default")
+        fun emptyTitleFallsBackToDefault() {
+            val poster = createPoster()
+            every { poster.areNotificationsEnabled() } returns true
+            every { poster.post(any(), any()) } returns Result.success(2004)
+            val handler = NotificationPostHandler(poster)
+
+            handler.execute(
+                buildJsonObject {
+                    put("title", "")
+                    put("message", "hello")
+                },
+            )
+
+            verify { poster.post("JustCEO", "hello") }
+        }
+
+        @Test
+        @DisplayName("a missing message throws InvalidParams")
+        fun missingMessageThrowsInvalidParams() {
+            val poster = createPoster()
+            every { poster.areNotificationsEnabled() } returns true
+            val handler = NotificationPostHandler(poster)
+
+            assertThrows<McpToolException.InvalidParams> {
+                handler.execute(buildJsonObject { put("title", "Delivery") })
+            }
+        }
+
+        @Test
+        @DisplayName("an empty message throws InvalidParams")
+        fun emptyMessageThrowsInvalidParams() {
+            val poster = createPoster()
+            every { poster.areNotificationsEnabled() } returns true
+            val handler = NotificationPostHandler(poster)
+
+            assertThrows<McpToolException.InvalidParams> {
+                handler.execute(buildJsonObject { put("message", "") })
+            }
+        }
+
+        @Test
+        @DisplayName("a message over the maximum length throws InvalidParams")
+        fun messageOverMaxLengthThrowsInvalidParams() {
+            val poster = createPoster()
+            every { poster.areNotificationsEnabled() } returns true
+            val handler = NotificationPostHandler(poster)
+
+            assertThrows<McpToolException.InvalidParams> {
+                handler.execute(buildJsonObject { put("message", "a".repeat(5_001)) })
+            }
+        }
+
+        @Test
+        @DisplayName("a title over the maximum length throws InvalidParams")
+        fun titleOverMaxLengthThrowsInvalidParams() {
+            val poster = createPoster()
+            every { poster.areNotificationsEnabled() } returns true
+            val handler = NotificationPostHandler(poster)
+
+            assertThrows<McpToolException.InvalidParams> {
+                handler.execute(
+                    buildJsonObject {
+                        put("title", "t".repeat(101))
+                        put("message", "hello")
+                    },
+                )
+            }
+        }
+
+        @Test
+        @DisplayName("a non-string message throws InvalidParams")
+        fun nonStringMessageThrowsInvalidParams() {
+            val poster = createPoster()
+            every { poster.areNotificationsEnabled() } returns true
+            val handler = NotificationPostHandler(poster)
+
+            assertThrows<McpToolException.InvalidParams> {
+                handler.execute(buildJsonObject { put("message", 42) })
+            }
+        }
+
+        @Test
+        @DisplayName("a failed post throws ActionFailed")
+        fun failedPostThrowsActionFailed() {
+            val poster = createPoster()
+            every { poster.areNotificationsEnabled() } returns true
+            every { poster.post(any(), any()) } returns
+                Result.failure(IllegalStateException("NotificationManager is unavailable on this device"))
+            val handler = NotificationPostHandler(poster)
+
+            assertThrows<McpToolException.ActionFailed> {
+                handler.execute(buildJsonObject { put("message", "hello") })
+            }
+        }
     }
 }

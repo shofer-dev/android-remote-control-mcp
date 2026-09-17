@@ -31,6 +31,7 @@ class CuratedToolSurfaceTest {
             "close_app",
             "open_uri",
             "notification_dismiss",
+            "post_notification",
         )
 
     private val excludedSample =

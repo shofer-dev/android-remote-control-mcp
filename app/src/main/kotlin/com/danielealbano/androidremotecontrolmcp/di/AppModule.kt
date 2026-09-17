@@ -31,6 +31,8 @@ import com.danielealbano.androidremotecontrolmcp.services.connector.policy.Andro
 import com.danielealbano.androidremotecontrolmcp.services.connector.policy.DeviceEnvironment
 import com.danielealbano.androidremotecontrolmcp.services.intents.IntentDispatcher
 import com.danielealbano.androidremotecontrolmcp.services.intents.IntentDispatcherImpl
+import com.danielealbano.androidremotecontrolmcp.services.notifications.NotificationPoster
+import com.danielealbano.androidremotecontrolmcp.services.notifications.NotificationPosterImpl
 import com.danielealbano.androidremotecontrolmcp.services.notifications.NotificationProvider
 import com.danielealbano.androidremotecontrolmcp.services.notifications.NotificationProviderImpl
 import com.danielealbano.androidremotecontrolmcp.services.screencapture.ApiLevelProvider
@@ -202,6 +204,10 @@ abstract class ServiceModule {
     @Binds
     @Singleton
     abstract fun bindNotificationProvider(impl: NotificationProviderImpl): NotificationProvider
+
+    @Binds
+    @Singleton
+    abstract fun bindNotificationPoster(impl: NotificationPosterImpl): NotificationPoster
 
     @Binds
     @Singleton

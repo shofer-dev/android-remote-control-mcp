@@ -31,6 +31,7 @@ import com.danielealbano.androidremotecontrolmcp.services.apps.AppManager
 import com.danielealbano.androidremotecontrolmcp.services.camera.CameraProvider
 import com.danielealbano.androidremotecontrolmcp.services.intents.IntentDispatcher
 import com.danielealbano.androidremotecontrolmcp.services.location.LocationProvider
+import com.danielealbano.androidremotecontrolmcp.services.notifications.NotificationPoster
 import com.danielealbano.androidremotecontrolmcp.services.notifications.NotificationProvider
 import com.danielealbano.androidremotecontrolmcp.services.screencapture.ScreenCaptureProvider
 import com.danielealbano.androidremotecontrolmcp.services.screencapture.ScreenshotAnnotator
@@ -83,6 +84,7 @@ class McpToolServerFactory
         private val cameraProvider: CameraProvider,
         private val intentDispatcher: IntentDispatcher,
         private val notificationProvider: NotificationProvider,
+        private val notificationPoster: NotificationPoster,
         private val locationProvider: LocationProvider,
         private val simInfoReader: SimInfoReader,
     ) {
@@ -170,7 +172,7 @@ class McpToolServerFactory
             registerAppManagementTools(server, appManager, toolNamePrefix, perms)
             registerCameraTools(server, cameraProvider, fileOperationProvider, toolNamePrefix, perms)
             registerIntentTools(server, intentDispatcher, toolNamePrefix, perms)
-            registerNotificationTools(server, notificationProvider, toolNamePrefix, perms)
+            registerNotificationTools(server, notificationProvider, notificationPoster, toolNamePrefix, perms)
             registerLocationTools(server, locationProvider, toolNamePrefix, perms)
             registerSimInfoTools(server, simInfoReader, toolNamePrefix, perms)
         }

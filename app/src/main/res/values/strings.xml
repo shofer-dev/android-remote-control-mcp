@@ -84,6 +84,7 @@
     <string name="connector_update_confirm">Android is asking you to confirm this install. Open the notification to finish it.</string>
     <string name="connector_update_failed">The update did not go through: %1$s</string>
     <string name="notification_channel_permissions_name">Permissions</string>
+    <string name="notification_channel_messages_name">Messages</string>
     <string name="notification_permissions_title">JustCEO needs permissions to operate this device</string>
     <string name="notification_permissions_text">Missing: %1$s. Tap to review and grant them.</string>
     <string name="permission_audit_title">Permissions needed</string>

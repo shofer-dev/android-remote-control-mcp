@@ -87,6 +87,14 @@ object CuratedToolSurface {
     /** §4 `android_dismiss_notification`. */
     const val NOTIFICATION_DISMISS = "notification_dismiss"
 
+    /**
+     * §4 `android_notify` — puts a message in the shade for the device's HOLDER to read. WRITE:
+     * it puts content a person reads in front of them under the org's name, which is why the
+     * platform gives it its own acting category (`phone-messaging`) rather than folding it into
+     * the gesture verbs.
+     */
+    const val POST_NOTIFICATION = "post_notification"
+
     /** Base name → group for every curated tool. Its key set IS [ALLOWLIST]. */
     val GROUPS: Map<String, ToolGroup> =
         mapOf(
@@ -106,6 +114,7 @@ object CuratedToolSurface {
             CLOSE_APP to ToolGroup.WRITE,
             OPEN_URI to ToolGroup.WRITE,
             NOTIFICATION_DISMISS to ToolGroup.WRITE,
+            POST_NOTIFICATION to ToolGroup.WRITE,
         )
 
     /** The curated base names — the positive allowlist the factory enforces. */

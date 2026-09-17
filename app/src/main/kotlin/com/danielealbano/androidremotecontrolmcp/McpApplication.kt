@@ -135,6 +135,7 @@ class McpApplication : Application() {
         const val MCP_SERVER_CHANNEL_ID = "mcp_server_channel"
         const val CONNECTOR_CHANNEL_ID = "connector_channel"
         const val PERMISSIONS_CHANNEL_ID = "permissions_channel"
+        const val MESSAGES_CHANNEL_ID = "messages_channel"
 
         /**
          * Creates the standalone MCP server's notification channel. Idempotent — `create` on an
@@ -148,6 +149,28 @@ class McpApplication : Application() {
                     NotificationManager.IMPORTANCE_LOW,
                 ).apply {
                     description = "Notification for the running MCP server"
+                }
+            context.getSystemService(NotificationManager::class.java).createNotificationChannel(channel)
+        }
+
+        /**
+         * Creates the channel messages addressed to the HOLDER are posted on. Idempotent, like
+         * [ensureMcpServerChannel], so the poster may call it on every message.
+         *
+         * Created on demand rather than eagerly for the same reason: a device that is never asked
+         * to show a message would otherwise list a "Messages" row in its OS notification settings
+         * for a surface it does not use. Its importance is DEFAULT, not the LOW the app's other
+         * channels carry — those track a condition and must be findable without startling anyone,
+         * while a message exists to be noticed by a person.
+         */
+        fun ensureMessagesChannel(context: Context) {
+            val channel =
+                NotificationChannel(
+                    MESSAGES_CHANNEL_ID,
+                    context.getString(R.string.notification_channel_messages_name),
+                    NotificationManager.IMPORTANCE_DEFAULT,
+                ).apply {
+                    description = "Messages for the person holding this device"
                 }
             context.getSystemService(NotificationManager::class.java).createNotificationChannel(channel)
         }

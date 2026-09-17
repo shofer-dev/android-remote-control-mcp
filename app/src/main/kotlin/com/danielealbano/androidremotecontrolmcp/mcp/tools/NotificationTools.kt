@@ -2,6 +2,7 @@ package com.danielealbano.androidremotecontrolmcp.mcp.tools
 
 import com.danielealbano.androidremotecontrolmcp.data.model.ToolPermissionsConfig
 import com.danielealbano.androidremotecontrolmcp.mcp.McpToolException
+import com.danielealbano.androidremotecontrolmcp.services.notifications.NotificationPoster
 import com.danielealbano.androidremotecontrolmcp.services.notifications.NotificationProvider
 import com.danielealbano.androidremotecontrolmcp.services.notifications.NotificationProviderImpl
 import com.danielealbano.androidremotecontrolmcp.utils.Logger
@@ -430,12 +431,130 @@ class NotificationReplyHandler
     }
 
 // ─────────────────────────────────────────────────────────────────────────────
+// post_notification
+// ─────────────────────────────────────────────────────────────────────────────
+
+/**
+ * Posts a message into the phone's notification shade for its HOLDER — a person — to read.
+ *
+ * The only notification tool that WRITES to the shade rather than reading it, so it is the only
+ * one that needs no notification-listener access: it needs the ordinary `POST_NOTIFICATIONS`
+ * grant, which is why its readiness question is [NotificationPoster.areNotificationsEnabled]
+ * rather than [NotificationProvider.isReady].
+ *
+ * It is an ACTION tool: the result is server-generated confirmation text and carries no
+ * device-derived content, so it uses the PLAIN result helper rather than the untrusted variant
+ * (`CLAUDE.md` §7, Anti-prompt-injection).
+ */
+class NotificationPostHandler
+    @Inject
+    constructor(
+        private val notificationPoster: NotificationPoster,
+    ) {
+        fun execute(arguments: JsonObject?): CallToolResult {
+            // Asked first, and reported as a typed failure: a notification posted while the app's
+            // notifications are blocked is accepted by the OS and shown to nobody, so a caller
+            // that skipped this check would be told a message was delivered that no one can read.
+            if (!notificationPoster.areNotificationsEnabled()) {
+                throw McpToolException.PermissionDenied(
+                    "Notifications are disabled for this app, so nothing posted would reach the " +
+                        "device holder. Enable them in Android Settings > Apps > Notifications.",
+                )
+            }
+            val title =
+                McpToolUtils
+                    .optionalString(arguments, "title", DEFAULT_TITLE)
+                    .ifEmpty { DEFAULT_TITLE }
+            val message = McpToolUtils.requireString(arguments, "message")
+            validateTitle(title)
+            validateMessage(message)
+            Logger.d(TAG, "Executing post_notification, title length=${title.length}, message length=${message.length}")
+            val posted = notificationPoster.post(title, message)
+            val notificationId =
+                posted.getOrElse { failure ->
+                    throw McpToolException.ActionFailed(
+                        "Could not post the notification: ${failure.message ?: "Unknown error"}",
+                    )
+                }
+            return McpToolUtils.textResult("Notification posted (id $notificationId)")
+        }
+
+        private fun validateTitle(title: String) {
+            if (title.length > MAX_TITLE_LENGTH) {
+                throw McpToolException.InvalidParams(
+                    "Parameter 'title' must not exceed $MAX_TITLE_LENGTH characters",
+                )
+            }
+        }
+
+        private fun validateMessage(message: String) {
+            if (message.isEmpty()) {
+                throw McpToolException.InvalidParams("Parameter 'message' must not be empty")
+            }
+            if (message.length > MAX_MESSAGE_LENGTH) {
+                throw McpToolException.InvalidParams(
+                    "Parameter 'message' must not exceed $MAX_MESSAGE_LENGTH characters",
+                )
+            }
+        }
+
+        fun register(
+            server: Server,
+            toolNamePrefix: String,
+        ) {
+            server.addTool(
+                name = "${toolNamePrefix}post_notification",
+                description =
+                    "Post a message into this phone's notification shade for the PERSON holding " +
+                        "the device to read. It is an ordinary Android notification on this app's " +
+                        "Messages channel; long text stays readable when expanded, and each " +
+                        "message gets its own row rather than replacing the last one. " +
+                        "This does not message another agent and does not raise a platform event.",
+                inputSchema =
+                    ToolSchema(
+                        properties =
+                            buildJsonObject {
+                                putJsonObject("title") {
+                                    put("type", "string")
+                                    put(
+                                        "description",
+                                        "Notification title (defaults to \"$DEFAULT_TITLE\"), " +
+                                            "max $MAX_TITLE_LENGTH characters",
+                                    )
+                                }
+                                putJsonObject("message") {
+                                    put("type", "string")
+                                    put(
+                                        "description",
+                                        "The message the holder reads (non-empty, " +
+                                            "max $MAX_MESSAGE_LENGTH characters)",
+                                    )
+                                }
+                            },
+                        required = listOf("message"),
+                    ),
+            ) { request -> execute(request.arguments) }
+        }
+
+        companion object {
+            const val TOOL_NAME = "post_notification"
+            private const val TAG = "MCP:NotificationPostHandler"
+
+            /** What the shade shows when the caller names no title. */
+            private const val DEFAULT_TITLE = "JustCEO"
+            private const val MAX_TITLE_LENGTH = 100
+            private const val MAX_MESSAGE_LENGTH = 5_000
+        }
+    }
+
+// ─────────────────────────────────────────────────────────────────────────────
 // Registration function
 // ─────────────────────────────────────────────────────────────────────────────
 
 fun registerNotificationTools(
     server: Server,
     notificationProvider: NotificationProvider,
+    notificationPoster: NotificationPoster,
     toolNamePrefix: String,
     perms: ToolPermissionsConfig,
 ) {
@@ -456,5 +575,8 @@ fun registerNotificationTools(
     }
     if (perms.isToolEnabled(NotificationReplyHandler.TOOL_NAME)) {
         NotificationReplyHandler(notificationProvider).register(server, toolNamePrefix)
+    }
+    if (perms.isToolEnabled(NotificationPostHandler.TOOL_NAME)) {
+        NotificationPostHandler(notificationPoster).register(server, toolNamePrefix)
     }
 }
