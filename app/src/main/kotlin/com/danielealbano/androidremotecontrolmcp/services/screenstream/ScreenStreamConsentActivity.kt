@@ -2,7 +2,9 @@ package com.danielealbano.androidremotecontrolmcp.services.screenstream
 
 import android.content.Context
 import android.content.Intent
+import android.media.projection.MediaProjectionConfig
 import android.media.projection.MediaProjectionManager
+import android.os.Build
 import android.os.Bundle
 import android.util.Log
 import androidx.activity.ComponentActivity
@@ -56,10 +58,20 @@ class ScreenStreamConsentActivity : ComponentActivity() {
             finish()
             return
         }
-        // The default (user-choice) config is deliberate: opting out of app screen sharing would
-        // forbid the holder from sharing a single app, and this app has no standing to narrow what
-        // its owner is willing to show.
-        request.launch(manager.createScreenCaptureIntent())
+        // Entire-display only (API 34+). Remote viewing exists to see the phone ACROSS apps —
+        // a single-app share would stream one app while actions land in others, which misleads
+        // the operator and shows the holder a narrower grant than what is actually in use. It
+        // narrows nothing real either: the accessibility frame poll already captures the whole
+        // screen with no consent. So the dialog asks the honest question, plainly, once. On
+        // API 33 the plain intent is entire-display by construction (single-app sharing arrived
+        // with Android 14).
+        val intent =
+            if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.UPSIDE_DOWN_CAKE) {
+                manager.createScreenCaptureIntent(MediaProjectionConfig.createConfigForDefaultDisplay())
+            } else {
+                manager.createScreenCaptureIntent()
+            }
+        request.launch(intent)
     }
 
     companion object {
