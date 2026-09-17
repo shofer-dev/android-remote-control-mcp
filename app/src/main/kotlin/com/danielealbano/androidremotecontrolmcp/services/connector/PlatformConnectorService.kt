@@ -17,6 +17,7 @@ import com.danielealbano.androidremotecontrolmcp.services.connector.indicator.Re
 import com.danielealbano.androidremotecontrolmcp.services.connector.policy.PolicyEnforcer
 import com.danielealbano.androidremotecontrolmcp.services.mcp.McpToolServerFactory
 import com.danielealbano.androidremotecontrolmcp.services.screenstream.ScreenStreamController
+import com.danielealbano.androidremotecontrolmcp.services.selfupdate.SelfUpdater
 import com.danielealbano.androidremotecontrolmcp.ui.ConnectorTermsActivity
 import com.danielealbano.androidremotecontrolmcp.ui.MainActivity
 import com.danielealbano.androidremotecontrolmcp.utils.MonotonicClock
@@ -63,6 +64,8 @@ class PlatformConnectorService : Service() {
     @Inject lateinit var activityIndicator: RemoteActivityIndicator
 
     @Inject lateinit var screenStream: ScreenStreamController
+
+    @Inject lateinit var selfUpdater: SelfUpdater
 
     @Inject lateinit var clock: MonotonicClock
 
@@ -119,6 +122,7 @@ class PlatformConnectorService : Service() {
                 activityIndicator = activityIndicator,
                 screenStream = screenStream,
                 screenLock = AndroidScreenLockMonitor(applicationContext),
+                selfUpdater = selfUpdater,
                 clock = clock,
             )
         connector = platformConnector

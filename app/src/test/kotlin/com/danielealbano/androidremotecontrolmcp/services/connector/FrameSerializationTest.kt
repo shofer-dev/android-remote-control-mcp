@@ -2,11 +2,14 @@
 
 package com.danielealbano.androidremotecontrolmcp.services.connector
 
+import com.danielealbano.androidremotecontrolmcp.services.connector.protocol.ActionName
 import com.danielealbano.androidremotecontrolmcp.services.connector.protocol.Capability
 import com.danielealbano.androidremotecontrolmcp.services.connector.protocol.ConnectorJson
 import com.danielealbano.androidremotecontrolmcp.services.connector.protocol.Frame
 import com.danielealbano.androidremotecontrolmcp.services.connector.protocol.FrameType
 import com.danielealbano.androidremotecontrolmcp.services.connector.protocol.StreamError
+import com.danielealbano.androidremotecontrolmcp.services.selfupdate.UpdateRefusal
+import com.danielealbano.androidremotecontrolmcp.services.selfupdate.UpdateSpec
 import kotlinx.serialization.json.jsonObject
 import kotlinx.serialization.json.jsonPrimitive
 import org.junit.jupiter.api.Assertions.assertEquals
@@ -194,6 +197,80 @@ class FrameSerializationTest {
         // lie — the gateway treats a reported `false` as authoritative and stops inferring.
         val json = encode(Frame(type = FrameType.ATTACH, phoneId = "uuid-1", screenLocked = null))
         assertFalse(json.contains("screen_locked"))
+    }
+
+    @Test
+    fun `update_check carries only its app-minted id`() {
+        // The one frame on this leg whose id the DEVICE mints. Anything else riding along would be
+        // a field the gateway's handler does not expect on a type it may not know at all.
+        val json = encode(Frame(type = FrameType.UPDATE_CHECK, id = "check-1"))
+        assertEquals(setOf("type", "id"), keys(json))
+    }
+
+    @Test
+    fun `update_info decodes the published build out of params`() {
+        val frame =
+            ConnectorJson.decodeFromString(
+                Frame.serializer(),
+                """{"type":"update_info","id":"check-1","params":{"url":"https://e.invalid/a.apk",""" +
+                    """"sha256":"abcd","version":"g953943d7f944"}}""",
+            )
+        assertEquals(FrameType.UPDATE_INFO, frame.type)
+        assertEquals("check-1", frame.id)
+        val spec = UpdateSpec.parse(frame.params)!!
+        assertEquals("https://e.invalid/a.apk", spec.url)
+        assertEquals("abcd", spec.sha256)
+        assertEquals("g953943d7f944", spec.version)
+    }
+
+    @Test
+    fun `an update_app action decodes through the same params parser as update_info`() {
+        // One triple, one parser, both legs — a field the gateway spelled differently on one of
+        // them must not be silently tolerated on the other.
+        val frame =
+            ConnectorJson.decodeFromString(
+                Frame.serializer(),
+                """{"type":"action","id":"srv-1","action":"update_app","params":{"url":"https://e.invalid/a.apk",""" +
+                    """"sha256":"abcd","version":"g953943d7f944"}}""",
+            )
+        assertEquals(ActionName.UPDATE_APP, frame.action)
+        assertEquals(
+            UpdateSpec("https://e.invalid/a.apk", "abcd", "g953943d7f944"),
+            UpdateSpec.parse(frame.params),
+        )
+    }
+
+    @Test
+    fun `an update_app action_result carries accepted as a JSON boolean`() {
+        // {"accepted": true}, never {"accepted": "true"} — the platform parses a boolean, and a
+        // quoted one is the kind of mismatch that reads as a device that never answered.
+        val json =
+            encode(
+                Frame(
+                    type = FrameType.ACTION_RESULT,
+                    id = "srv-1",
+                    action = ActionName.UPDATE_APP,
+                    payload = PlatformDeviceActionHandler.ACCEPTED_PAYLOAD,
+                ),
+            )
+        assertEquals(setOf("type", "id", "action", "payload"), keys(json))
+        assertTrue(json.contains("""{"accepted":true}"""))
+    }
+
+    @Test
+    fun `a typed update refusal rides the ordinary action_result error path`() {
+        val json =
+            encode(
+                Frame(
+                    type = FrameType.ACTION_RESULT,
+                    id = "srv-1",
+                    action = ActionName.UPDATE_APP,
+                    error = UpdateRefusal.CHECKSUM_MISMATCH,
+                    details = "the fetched APK does not match the sha256 the platform declared",
+                ),
+            )
+        assertEquals(setOf("type", "id", "action", "error", "details"), keys(json))
+        assertTrue(json.contains("\"error\":\"checksum-mismatch\""))
     }
 
     @Test

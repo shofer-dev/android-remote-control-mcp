@@ -73,6 +73,16 @@
     <string name="connector_keepalive_body_autostart">This phone also has a vendor autostart setting, which decides whether the app may start itself again after a reboot. Android gives apps no way to read that setting, so this card cannot tell you whether it is on; open it and check that this app is allowed.</string>
     <string name="connector_keepalive_autostart">Autostart settings</string>
     <string name="connector_keepalive_battery">Battery settings</string>
+    <string name="notification_update_confirm_title">Finish updating JustCEO</string>
+    <string name="notification_update_confirm_text">A new version has been downloaded and is ready. Tap to finish installing it.</string>
+    <string name="connector_update_title">A new version is ready</string>
+    <string name="connector_update_available">Version %1$s is available. This app is installed outside an app store, so it updates itself.</string>
+    <string name="connector_update_action">Update</string>
+    <string name="connector_update_refresh">Check again</string>
+    <string name="connector_update_downloading">Downloading the new version…</string>
+    <string name="connector_update_installing">Installing the new version. The app will restart by itself.</string>
+    <string name="connector_update_confirm">Android is asking you to confirm this install. Open the notification to finish it.</string>
+    <string name="connector_update_failed">The update did not go through: %1$s</string>
     <string name="notification_channel_permissions_name">Permissions</string>
     <string name="notification_permissions_title">JustCEO needs permissions to operate this device</string>
     <string name="notification_permissions_text">Missing: %1$s. Tap to review and grant them.</string>

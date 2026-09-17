@@ -34,6 +34,7 @@ import com.danielealbano.androidremotecontrolmcp.services.mcp.McpToolServerFacto
 import com.danielealbano.androidremotecontrolmcp.services.screenstream.ScreenStreamController
 import com.danielealbano.androidremotecontrolmcp.services.screenstream.ScreenStreamSink
 import com.danielealbano.androidremotecontrolmcp.services.screenstream.ScreenStreamStart
+import com.danielealbano.androidremotecontrolmcp.services.selfupdate.SelfUpdater
 import com.danielealbano.androidremotecontrolmcp.utils.MonotonicClock
 import io.modelcontextprotocol.kotlin.sdk.server.ServerSession
 import kotlinx.coroutines.CoroutineScope
@@ -59,6 +60,7 @@ import okhttp3.WebSocketListener
 import okio.ByteString
 import okio.ByteString.Companion.toByteString
 import java.net.Proxy
+import java.util.UUID
 import java.util.concurrent.TimeUnit
 import kotlin.random.Random
 
@@ -108,6 +110,16 @@ import kotlin.random.Random
  *   holds no socket cannot be commanded by a dispatcher bug at all. It then sleeps until the
  *   window reopens rather than dialling on a backoff that would be refused all night.
  *
+ * ── The app's own version is part of what this socket carries ──────────────────────────
+ * Every `attach` states this build's `app_version`, and two things ride on that. The platform can
+ * PUSH an `update_app` action at a phone nobody is holding, executed by
+ * [PlatformDeviceActionHandler] through
+ * [SelfUpdater][com.danielealbano.androidremotecontrolmcp.services.selfupdate.SelfUpdater]; and
+ * this connector can ASK, with an `update_check` sent once per attach (and again whenever the
+ * holder refreshes the card). The reply to a pushed update is deliberately early — the install
+ * replaces this process, so the platform confirms it by the device re-attaching with a new
+ * `app_version` rather than by any frame this socket could still write.
+ *
  * ── The identity is only as durable as the platform's record of it ─────────────────────
  * Two rules keep a stored `phone_id` from outliving its meaning, and both live here rather than
  * in the UI because a phone in a rack has nobody looking at it:
@@ -137,6 +149,7 @@ class PlatformConnector(
     private val activityIndicator: RemoteActivityIndicator,
     private val screenStream: ScreenStreamController,
     private val screenLock: ScreenLockMonitor,
+    private val selfUpdater: SelfUpdater,
     private val appVersion: String = BuildConfig.VERSION_NAME,
     private val clock: MonotonicClock = MonotonicClock { SystemClock.elapsedRealtime() },
 ) {
@@ -356,6 +369,7 @@ class PlatformConnector(
         val capabilityWatch = startCapabilityWatch()
         var heartbeat: Job? = null
         var screenLockWatch: Job? = null
+        var updateCheckWatch: Job? = null
         var windowWatchdog: Job? = null
         var staleWatchdog: Job? = null
         // Every server answer rearms the watchdog, so silence — not a missing FIN — is what ends
@@ -411,6 +425,7 @@ class PlatformConnector(
                                         // emission is not waste — it closes the gap between
                                         // building the attach frame and the attach completing.
                                         screenLockWatch = startScreenLockWatch()
+                                        updateCheckWatch = startUpdateCheckWatch(ws)
                                     },
                                 ) {
                                     windowWatchdog?.cancel()
@@ -442,6 +457,10 @@ class PlatformConnector(
             // the connection goes (it describes a phone nobody can see any more), and a receiver
             // left registered would be a leak per reconnect.
             screenLockWatch?.cancel()
+            // Likewise the update check: a pending timeout belongs to a socket that no longer
+            // exists, and the next attach asks again. The ANSWER is deliberately kept — what the
+            // platform publishes does not stop being true because a link dropped.
+            updateCheckWatch?.cancel()
             windowWatchdog?.cancel()
             staleWatchdog?.cancel()
             // The policy dies with the socket that delivered it: a reconnect refuses every
@@ -643,6 +662,11 @@ class PlatformConnector(
 
                 FrameType.STREAM_STOP -> {
                     stopScreenStream(frame)
+                    null
+                }
+
+                FrameType.UPDATE_INFO -> {
+                    selfUpdater.onUpdateInfo(frame.params)
                     null
                 }
 
@@ -943,6 +967,37 @@ class PlatformConnector(
         }
 
     /**
+     * Asks the platform what build it publishes — once on attach, and again whenever the holder
+     * refreshes the connector card ([SelfUpdater.checkRequests]).
+     *
+     * Once per ATTACH rather than on a timer: the answer only changes when the platform publishes,
+     * and a phone that has just re-attached is exactly a phone whose `app_version` the platform has
+     * just re-read. There is no polling here and there does not need to be — the platform can also
+     * PUSH an `update_app` action whenever it likes.
+     *
+     * Each check arms its own lapse timer as a child of this job, so every one of them dies with
+     * the socket. An older gateway that does not know `update_check` simply ignores the frame and
+     * answers nothing, which is why the timer exists at all: it retires the question quietly
+     * instead of leaving the card spinning forever.
+     */
+    private fun startUpdateCheckWatch(ws: WebSocket): Job =
+        scope.launch {
+            sendUpdateCheck(ws)
+            selfUpdater.checkRequests.collect { sendUpdateCheck(ws) }
+        }
+
+    /** Sends one `update_check` and arms the lapse timer for its id. */
+    private fun CoroutineScope.sendUpdateCheck(ws: WebSocket) {
+        val id = UUID.randomUUID().toString()
+        selfUpdater.onCheckSent(id)
+        ws.send(encode(Frame(type = FrameType.UPDATE_CHECK, id = id)))
+        launch {
+            delay(UPDATE_CHECK_TIMEOUT_MS)
+            selfUpdater.onCheckLapsed(id)
+        }
+    }
+
+    /**
      * The attach frame, carrying whatever this phone can do at this instant — and what its
      * keyguard is doing, so the platform knows before the first command rather than one broadcast
      * later. A phone whose OS cannot be asked sends no `screen_locked` at all.
@@ -1237,5 +1292,12 @@ class PlatformConnector(
          * clock that moves under us, must never turn the detach into a dial-refuse-dial spin.
          */
         private const val MIN_OUT_OF_HOURS_SLEEP_MS = 60_000L
+
+        /**
+         * How long an `update_check` waits for its `update_info`. A gateway that has no handler for
+         * the type answers nothing at all rather than refusing, so the wait has to end by itself —
+         * and it ends in "unknown", never in a claim that this device is up to date.
+         */
+        private const val UPDATE_CHECK_TIMEOUT_MS = 10_000L
     }
 }

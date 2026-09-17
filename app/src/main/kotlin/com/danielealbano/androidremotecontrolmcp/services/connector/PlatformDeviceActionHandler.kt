@@ -12,6 +12,10 @@ import com.danielealbano.androidremotecontrolmcp.data.model.LocationData
 import com.danielealbano.androidremotecontrolmcp.services.connector.protocol.ActionName
 import com.danielealbano.androidremotecontrolmcp.services.deviceadmin.PlatformDeviceAdminReceiver
 import com.danielealbano.androidremotecontrolmcp.services.location.LocationProvider
+import com.danielealbano.androidremotecontrolmcp.services.selfupdate.SelfUpdater
+import com.danielealbano.androidremotecontrolmcp.services.selfupdate.UpdateOutcome
+import com.danielealbano.androidremotecontrolmcp.services.selfupdate.UpdateRefusal
+import com.danielealbano.androidremotecontrolmcp.services.selfupdate.UpdateSpec
 import dagger.hilt.android.qualifiers.ApplicationContext
 import kotlinx.coroutines.delay
 import kotlinx.serialization.json.JsonElement
@@ -25,16 +29,17 @@ import javax.inject.Singleton
 
 /**
  * The real device-action executor (`docs/phones/android_remote_control.md` §6.4): "the app
- * executes, the platform decides". It performs the four action frames the gateway pushes on the
- * standing socket — `lock`, `wipe`, `locate`, `ring` (wire spec §6.1) — with no local judgment;
- * authorization is the gateway's (`android-use`/`android-manage`). `pause`/`resume` are
- * gateway-local and never arrive.
+ * executes, the platform decides". It performs the action frames the gateway pushes on the
+ * standing socket — `lock`, `wipe`, `locate`, `ring` (wire spec §6.1) and `update_app` — with no
+ * local judgment; authorization is the gateway's (`android-use`/`android-manage`).
+ * `pause`/`resume` are gateway-local and never arrive.
  *
  * Degradation is honest. `lock` and `wipe` need the [PlatformDeviceAdminReceiver] active; when it
  * is not held they return an [ActionOutcome.Failure] with `admin-not-held` rather than throwing
  * or silently succeeding. `wipe` is destructive and logs loudly before acting. `locate` rides the
  * flavor-neutral [LocationProvider] (fused on gms, LocationManager on foss) — never GMS directly.
- * `ring` uses [AudioManager] + a [Ringtone] at alarm volume.
+ * `ring` uses [AudioManager] + a [Ringtone] at alarm volume. `update_app` rides [SelfUpdater],
+ * which owns the whole refuse/fetch/verify/install order and every typed refusal in it.
  *
  * Each executor returns an outcome the connector renders into the `action_result` frame (which
  * the gateway logs but does not correlate — wire spec §6.3).
@@ -45,6 +50,7 @@ class PlatformDeviceActionHandler
     constructor(
         @ApplicationContext private val appContext: Context,
         private val locationProvider: LocationProvider,
+        private val selfUpdater: SelfUpdater,
     ) : DeviceActionHandler {
         override suspend fun execute(
             action: String,
@@ -65,6 +71,10 @@ class PlatformDeviceActionHandler
 
                 ActionName.RING -> {
                     ring(params)
+                }
+
+                ActionName.UPDATE_APP -> {
+                    updateApp(params)
                 }
 
                 else -> {
@@ -111,16 +121,33 @@ class PlatformDeviceActionHandler
         /**
          * Resolves the [DevicePolicyManager] and confirms this app is an active device admin.
          * [AdminAccess.Ready] carries the manager; [AdminAccess.Denied] carries the honest
-         * degradation outcome (`admin-unavailable` / `admin-not-held`).
+         * degradation outcome, and the two are kept apart because they send an operator to
+         * different places: `admin-unavailable` is an OS that has no policy manager at all, while
+         * `admin-not-held` is a grant nobody made at enrolment.
          */
         private fun requireActiveAdmin(action: String): AdminAccess {
-            val dpm =
-                appContext.getSystemService(DevicePolicyManager::class.java)
-                    ?: return AdminAccess.Denied(adminUnavailable(action))
-            return if (PlatformDeviceAdminReceiver.isAdminActive(appContext)) {
-                AdminAccess.Ready(dpm)
-            } else {
-                AdminAccess.Denied(adminNotHeld(action))
+            val dpm = appContext.getSystemService(DevicePolicyManager::class.java)
+            return when {
+                dpm == null -> {
+                    Log.e(TAG, "DevicePolicyManager unavailable; cannot $action")
+                    AdminAccess.Denied(
+                        ActionOutcome.Failure("admin-unavailable", "DevicePolicyManager is unavailable"),
+                    )
+                }
+
+                PlatformDeviceAdminReceiver.isAdminActive(appContext) -> {
+                    AdminAccess.Ready(dpm)
+                }
+
+                else -> {
+                    Log.w(TAG, "Device admin not active; cannot $action")
+                    AdminAccess.Denied(
+                        ActionOutcome.Failure(
+                            "admin-not-held",
+                            "device admin is not active; grant it at enrolment before '$action' can run",
+                        ),
+                    )
+                }
             }
         }
 
@@ -204,21 +231,49 @@ class PlatformDeviceActionHandler
             val uri: android.net.Uri,
         )
 
-        private fun adminUnavailable(action: String): ActionOutcome {
-            Log.e(TAG, "DevicePolicyManager unavailable; cannot $action")
-            return ActionOutcome.Failure("admin-unavailable", "DevicePolicyManager is unavailable")
-        }
+        /**
+         * Applies a build the platform published, and answers as soon as it has been handed to the
+         * OS installer.
+         *
+         * The reply is early ON PURPOSE and it is the only action where that is so: a successful
+         * install replaces this process, so there is no moment after it at which a completion frame
+         * could be written to the socket. `{"accepted": true}` therefore means "fetched, verified
+         * against the declared hash, and committed" — and the platform confirms the rest by this
+         * device re-attaching with a new `app_version`, which the attach frame already carries.
+         *
+         * Every refusal is typed ([UpdateRefusal]) because the platform branches on them: a device
+         * that is already current is not a device that failed to download.
+         */
+        private suspend fun updateApp(params: JsonElement?): ActionOutcome {
+            val spec =
+                UpdateSpec.parse(params)
+                    ?: return ActionOutcome.Failure(
+                        UpdateRefusal.BAD_PARAMS,
+                        "update_app needs params {url (https), sha256, version}",
+                    )
+            return when (val outcome = selfUpdater.applyUpdate(spec)) {
+                is UpdateOutcome.Accepted -> {
+                    Log.i(TAG, "Update ${spec.version} accepted and committed")
+                    ActionOutcome.Success(ACCEPTED_PAYLOAD)
+                }
 
-        private fun adminNotHeld(action: String): ActionOutcome {
-            Log.w(TAG, "Device admin not active; cannot $action")
-            return ActionOutcome.Failure(
-                "admin-not-held",
-                "device admin is not active; grant it at enrolment before '$action' can run",
-            )
+                is UpdateOutcome.Refused -> {
+                    Log.w(TAG, "Update ${spec.version} refused: ${outcome.error}")
+                    ActionOutcome.Failure(outcome.error, outcome.details)
+                }
+            }
         }
 
         companion object {
             private const val TAG = "MCP:DeviceAction"
+
+            /**
+             * The `update_app` success payload: `{"accepted": true}`, with a JSON BOOLEAN. It is
+             * built here rather than through [okPayload] because that helper is string-valued, and
+             * `"true"` is not the value the platform parses.
+             */
+            internal val ACCEPTED_PAYLOAD: JsonElement =
+                buildJsonObject { put("accepted", JsonPrimitive(true)) }
 
             internal const val DEFAULT_RING_MS = 15_000L
             internal const val MIN_RING_MS = 1_000L

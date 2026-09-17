@@ -37,11 +37,13 @@ import com.danielealbano.androidremotecontrolmcp.services.permissions.RemedyCapa
 import com.danielealbano.androidremotecontrolmcp.services.permissions.RemedyDestination
 import com.danielealbano.androidremotecontrolmcp.services.permissions.RemedyRouter
 import com.danielealbano.androidremotecontrolmcp.services.permissions.RequiredPermission
+import com.danielealbano.androidremotecontrolmcp.services.selfupdate.UpdateAvailability
 import com.danielealbano.androidremotecontrolmcp.services.vendor.VendorProfiles
 import com.danielealbano.androidremotecontrolmcp.ui.components.ConnectorKeepAliveHintCard
 import com.danielealbano.androidremotecontrolmcp.ui.components.ConnectorPairingCard
 import com.danielealbano.androidremotecontrolmcp.ui.components.ConnectorPairingDialog
 import com.danielealbano.androidremotecontrolmcp.ui.components.ConnectorStatusCard
+import com.danielealbano.androidremotecontrolmcp.ui.components.ConnectorUpdateCard
 import com.danielealbano.androidremotecontrolmcp.ui.components.PermissionsHintCard
 import com.danielealbano.androidremotecontrolmcp.ui.components.ScreenStreamCard
 import com.danielealbano.androidremotecontrolmcp.ui.viewmodels.ConnectorViewModel
@@ -74,6 +76,7 @@ fun ServerScreen(
     screenStreamViewModel: ScreenStreamViewModel = hiltViewModel(),
 ) {
     val connectorState by connectorViewModel.uiState.collectAsStateWithLifecycle()
+    val updateState by connectorViewModel.updateState.collectAsStateWithLifecycle()
     val keepAliveHintVisible by connectorViewModel.keepAliveHintVisible.collectAsStateWithLifecycle()
     val screenStreamArmed by screenStreamViewModel.armed.collectAsStateWithLifecycle()
     val context = LocalContext.current
@@ -111,6 +114,18 @@ fun ServerScreen(
                 onStop = connectorViewModel::stop,
                 onUnprovision = connectorViewModel::unprovision,
             )
+
+            // Directly under the status card, and only when there is something to apply: an update
+            // is the one thing on this screen that changes what the status card will say next, and
+            // the card renders itself away when the platform publishes nothing new.
+            if (updateState.availability is UpdateAvailability.Available) {
+                Spacer(Modifier.height(16.dp))
+                ConnectorUpdateCard(
+                    state = updateState,
+                    onUpdate = connectorViewModel::applyUpdate,
+                    onRefresh = connectorViewModel::refreshUpdateCheck,
+                )
+            }
 
             Spacer(Modifier.height(16.dp))
             // Sits under the connector card because it is only meaningful for a phone the platform

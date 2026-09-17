@@ -12,6 +12,8 @@ import com.danielealbano.androidremotecontrolmcp.services.connector.PairingInput
 import com.danielealbano.androidremotecontrolmcp.services.connector.PlatformConnectorService
 import com.danielealbano.androidremotecontrolmcp.services.permissions.PermissionAuditor
 import com.danielealbano.androidremotecontrolmcp.services.permissions.RequiredPermission
+import com.danielealbano.androidremotecontrolmcp.services.selfupdate.SelfUpdateState
+import com.danielealbano.androidremotecontrolmcp.services.selfupdate.SelfUpdater
 import com.danielealbano.androidremotecontrolmcp.utils.MonotonicClock
 import dagger.hilt.android.lifecycle.HiltViewModel
 import kotlinx.coroutines.delay
@@ -116,6 +118,7 @@ class ConnectorViewModel
         private val provisioning: ConnectorProvisioning,
         private val clock: MonotonicClock,
         private val permissionAuditor: PermissionAuditor,
+        private val selfUpdater: SelfUpdater,
     ) : ViewModel() {
         private val ticks: Flow<Long> =
             flow {
@@ -166,6 +169,32 @@ class ConnectorViewModel
                 config.isEnrolled &&
                     audit.missing.contains(RequiredPermission.BATTERY_OPTIMIZATION_EXEMPTION)
             }.stateIn(viewModelScope, SharingStarted.WhileSubscribed(FLOW_TIMEOUT_MS), false)
+
+        /**
+         * What the platform publishes, and how far an update this device is applying has got.
+         *
+         * Passed through from [SelfUpdater] rather than re-derived: the updater is the authority
+         * for both halves, and it has to be, because the platform can push an `update_app` action
+         * at a phone nobody is looking at — so the card must render a state it did not start.
+         */
+        val updateState: StateFlow<SelfUpdateState> = selfUpdater.state
+
+        /**
+         * Asks the platform again what it publishes.
+         *
+         * The request reaches the connector through [SelfUpdater.checkRequests], which the attached
+         * socket collects; with nothing attached it is simply dropped, because "ask the platform"
+         * has no meaning without a link and a spinner that could never resolve would be worse than
+         * a control that quietly does nothing.
+         */
+        fun refreshUpdateCheck() {
+            selfUpdater.requestCheck()
+        }
+
+        /** The update card's Update button. No-op when the last check found nothing to apply. */
+        fun applyUpdate() {
+            viewModelScope.launch { selfUpdater.applyAvailableUpdate() }
+        }
 
         /**
          * When the holder's current pairing attempt was submitted, on the same monotonic clock the

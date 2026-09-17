@@ -39,6 +39,11 @@ import com.danielealbano.androidremotecontrolmcp.services.screencapture.ScreenCa
 import com.danielealbano.androidremotecontrolmcp.services.screencapture.ScreenCaptureProviderImpl
 import com.danielealbano.androidremotecontrolmcp.services.screenstream.PlatformScreenStreamController
 import com.danielealbano.androidremotecontrolmcp.services.screenstream.ScreenStreamController
+import com.danielealbano.androidremotecontrolmcp.services.selfupdate.ApkDownloader
+import com.danielealbano.androidremotecontrolmcp.services.selfupdate.ApkInstaller
+import com.danielealbano.androidremotecontrolmcp.services.selfupdate.OkHttpApkDownloader
+import com.danielealbano.androidremotecontrolmcp.services.selfupdate.PackageInstallerApkInstaller
+import com.danielealbano.androidremotecontrolmcp.services.selfupdate.SelfUpdater
 import com.danielealbano.androidremotecontrolmcp.services.sharing.EphemeralFileLinkService
 import com.danielealbano.androidremotecontrolmcp.services.sharing.EphemeralFileLinkServiceImpl
 import com.danielealbano.androidremotecontrolmcp.services.sharing.SharedContentInbox
@@ -62,6 +67,7 @@ import dagger.hilt.android.qualifiers.ApplicationContext
 import dagger.hilt.components.SingletonComponent
 import kotlinx.coroutines.CoroutineDispatcher
 import kotlinx.coroutines.Dispatchers
+import java.io.File
 import javax.inject.Qualifier
 import javax.inject.Singleton
 
@@ -102,6 +108,28 @@ object AppModule {
     @Provides
     @Singleton
     fun provideMonotonicClock(): MonotonicClock = MonotonicClock { SystemClock.elapsedRealtime() }
+
+    /**
+     * Provides the APK self-updater.
+     *
+     * Constructed here rather than with an `@Inject` constructor because two of its inputs are
+     * VALUES rather than types — the staging directory and this build's version name — and giving
+     * either a Hilt binding of its own would make them injectable everywhere for the benefit of one
+     * consumer. Taking them as plain parameters is also what keeps [SelfUpdater] free of every
+     * Android framework type, so its whole refuse/fetch/verify/install order is a JVM unit test.
+     */
+    @Provides
+    @Singleton
+    fun provideSelfUpdater(
+        @ApplicationContext context: Context,
+        downloader: ApkDownloader,
+        installer: ApkInstaller,
+    ): SelfUpdater =
+        SelfUpdater(
+            workDir = File(context.cacheDir, SelfUpdater.WORK_DIR_NAME),
+            downloader = downloader,
+            installer = installer,
+        )
 }
 
 @Module
@@ -226,4 +254,17 @@ abstract class ServiceModule {
     @Binds
     @Singleton
     abstract fun bindDeviceEnvironment(impl: AndroidDeviceEnvironment): DeviceEnvironment
+
+    // --- APK self-update ---
+
+    // The two seams SelfUpdater carries the OS behind: an OkHttp fetch that hashes as it streams,
+    // and one PackageInstaller session. Interfaces so the updater's ORDER — refuse a same-version
+    // push, fetch, verify, install — is testable with no network and no package manager.
+    @Binds
+    @Singleton
+    abstract fun bindApkDownloader(impl: OkHttpApkDownloader): ApkDownloader
+
+    @Binds
+    @Singleton
+    abstract fun bindApkInstaller(impl: PackageInstallerApkInstaller): ApkInstaller
 }

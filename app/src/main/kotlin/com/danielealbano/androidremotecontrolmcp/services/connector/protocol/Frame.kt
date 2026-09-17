@@ -113,6 +113,17 @@ object FrameType {
      */
     const val SCREEN_STATE = "screen_state"
 
+    /**
+     * "What build do you publish for this device?" — sent once per attach and again whenever the
+     * holder asks the connector card to refresh. `id` is APP-minted here, which is the one place
+     * this leg mints one: every other correlated exchange is started by the gateway.
+     *
+     * An older gateway that does not know the type simply ignores it, so the answer may never
+     * come. That is a timeout, not a fault ([SelfUpdater][com.danielealbano.androidremotecontrolmcp.services.selfupdate.SelfUpdater]
+     * reports it as "unknown"), and nothing on the device waits on it.
+     */
+    const val UPDATE_CHECK = "update_check"
+
     // Gateway → device
     const val TERMS = "terms"
     const val ENROLLED = "enrolled"
@@ -129,6 +140,16 @@ object FrameType {
      */
     const val POLICY = "policy"
     const val ERROR = "error"
+
+    /**
+     * The answer to an [UPDATE_CHECK], carrying the same `id` back and the published build in
+     * `params` — `{url, sha256, version}`, the identical triple an [ActionName.UPDATE_APP] action
+     * carries, so one parser serves both legs.
+     *
+     * An absent or empty `version` means nothing is published, which is a real answer and not an
+     * error: it is how a platform with no build for this device says so.
+     */
+    const val UPDATE_INFO = "update_info"
 
     /** Begin screen capture: `id` is the stream id every later frame must name. */
     const val STREAM_START = "stream_start"
@@ -234,7 +255,7 @@ object RefusalReason {
 }
 
 /**
- * The four device-action names the gateway may push (wire spec §6.1, `protocol.go`
+ * The device-action names the gateway may push (wire spec §6.1, `protocol.go`
  * `SupportedActions`).
  *
  * `pause`/`resume` are NOT here, and that is the platform's shape rather than an omission:
@@ -248,6 +269,18 @@ object ActionName {
     const val WIPE = "wipe"
     const val LOCATE = "locate"
     const val RING = "ring"
+
+    /**
+     * Apply a published build to this device. The ONE action with a defined `params` schema —
+     * `{url, sha256, version}`, read as an
+     * [UpdateSpec][com.danielealbano.androidremotecontrolmcp.services.selfupdate.UpdateSpec].
+     *
+     * Its `action_result` is also the one that cannot report completion: a successful install
+     * replaces this process, so the success payload `{"accepted": true}` is sent as soon as the
+     * APK is fetched, verified and handed to the OS installer. The platform observes the rest by
+     * this device re-attaching with a new `app_version`.
+     */
+    const val UPDATE_APP = "update_app"
 }
 
 /**

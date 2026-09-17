@@ -10,6 +10,7 @@ import com.danielealbano.androidremotecontrolmcp.services.connector.ConnectorSta
 import com.danielealbano.androidremotecontrolmcp.services.permissions.PermissionAuditState
 import com.danielealbano.androidremotecontrolmcp.services.permissions.PermissionAuditor
 import com.danielealbano.androidremotecontrolmcp.services.permissions.RequiredPermission
+import com.danielealbano.androidremotecontrolmcp.services.selfupdate.SelfUpdater
 import com.danielealbano.androidremotecontrolmcp.utils.MonotonicClock
 import io.mockk.coVerify
 import io.mockk.every
@@ -30,6 +31,7 @@ import org.junit.jupiter.api.BeforeEach
 import org.junit.jupiter.api.DisplayName
 import org.junit.jupiter.api.Nested
 import org.junit.jupiter.api.Test
+import java.io.File
 
 @OptIn(ExperimentalCoroutinesApi::class)
 @DisplayName("ConnectorViewModel")
@@ -41,6 +43,20 @@ class ConnectorViewModelTest {
     private val connectorEnsure = mockk<ConnectorEnsure>(relaxed = true)
     private val provisioning = mockk<ConnectorProvisioning>(relaxed = true)
     private val permissionAuditor = mockk<PermissionAuditor>(relaxed = true)
+
+    /**
+     * A REAL updater over mocked seams rather than a mock of the updater itself: the ViewModel only
+     * passes its state through, so a mock would be asserting that a mock returns what it was told
+     * to. Nothing here reaches the network or the filesystem — no test in this class applies an
+     * update.
+     */
+    private val selfUpdater =
+        SelfUpdater(
+            workDir = File("build/tmp/connector-viewmodel-test"),
+            downloader = mockk(relaxed = true),
+            installer = mockk(relaxed = true),
+            appVersion = APP_VERSION,
+        )
 
     /**
      * The audit the keep-alive card is now derived from. Seeded MISSING, because that is the state
@@ -71,6 +87,7 @@ class ConnectorViewModelTest {
             provisioning,
             MonotonicClock { NOW },
             permissionAuditor,
+            selfUpdater,
         )
 
     @Nested
@@ -677,6 +694,7 @@ class ConnectorViewModelTest {
 
     private companion object {
         const val NOW = 0L
+        const val APP_VERSION = "1.0.0"
 
         val ENROLLED_CONFIG =
             ConnectorConfig(

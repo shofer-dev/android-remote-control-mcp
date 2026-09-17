@@ -35,6 +35,25 @@
     <!-- Notifications (Android 13+) -->
     <uses-permission android:name="android.permission.POST_NOTIFICATIONS" />
 
+    <!--
+      APK self-update (services/selfupdate/). This app is sideloaded — there is no store — so the
+      platform pushes a new build and the app applies it to itself through PackageInstaller.
+
+      REQUEST_INSTALL_PACKAGES is signature|appop: the signature half is unreachable for a
+      third-party app, so what actually admits us is the APP-OP, which the holder grants per app at
+      Settings -> Apps -> Special app access -> Install unknown apps (readable via
+      PackageManager.canRequestPackageInstalls). Without it an update still downloads and still
+      installs, but the OS asks for a tap rather than proceeding silently.
+
+      UPDATE_PACKAGES_WITHOUT_USER_ACTION (API 31+, protection level normal, granted at install
+      with nothing to revoke) is what lets setRequireUserAction(USER_ACTION_NOT_REQUIRED) be
+      honoured. For a SELF-update the framework needs no installer-of-record history — the package
+      being written is the package doing the writing — so the first update of a sideloaded build is
+      already silent once the toggle above is granted.
+    -->
+    <uses-permission android:name="android.permission.REQUEST_INSTALL_PACKAGES" />
+    <uses-permission android:name="android.permission.UPDATE_PACKAGES_WITHOUT_USER_ACTION" />
+
     <!-- App Management -->
     <uses-permission android:name="android.permission.QUERY_ALL_PACKAGES" />
     <uses-permission android:name="android.permission.KILL_BACKGROUND_PROCESSES" />
@@ -205,6 +224,24 @@
             android:exported="false">
             <intent-filter>
                 <action android:name="android.intent.action.BOOT_COMPLETED" />
+            </intent-filter>
+        </receiver>
+
+        <!-- Self-update install-session status receiver. Not exported: the OS delivers here through
+             the explicit PendingIntent the session was committed with, which needs no export, and
+             exporting it would let any app on the device fake an install outcome. -->
+        <receiver
+            android:name=".services.selfupdate.SelfUpdateStatusReceiver"
+            android:exported="false" />
+
+        <!-- Restarts the connector after an update replaced this app. MY_PACKAGE_REPLACED is a
+             protected system broadcast delivered only to the app that was replaced, so the filter
+             is the whole registration and no permission gate applies. -->
+        <receiver
+            android:name=".services.selfupdate.PackageReplacedReceiver"
+            android:exported="false">
+            <intent-filter>
+                <action android:name="android.intent.action.MY_PACKAGE_REPLACED" />
             </intent-filter>
         </receiver>
 
