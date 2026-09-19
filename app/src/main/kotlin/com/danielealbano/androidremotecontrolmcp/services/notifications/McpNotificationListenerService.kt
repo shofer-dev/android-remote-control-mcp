@@ -55,7 +55,7 @@ class McpNotificationListenerService : NotificationListenerService() {
         }
 
         _notificationChangeEvents.tryEmit(
-            NotificationChangeEvent(NotificationChangeType.POSTED, data),
+            NotificationChangeEvent(NotificationChangeType.POSTED, data, sbn.key),
         )
         Logger.d(TAG, "Notification posted: ${data.appName} - ${data.title}")
     }
@@ -78,7 +78,7 @@ class McpNotificationListenerService : NotificationListenerService() {
         lastSeenContentHash.remove(sbn.key)
         val data = NotificationDataExtractor.extract(sbn, applicationContext)
         _notificationChangeEvents.tryEmit(
-            NotificationChangeEvent(NotificationChangeType.REMOVED, data),
+            NotificationChangeEvent(NotificationChangeType.REMOVED, data, sbn.key),
         )
     }
 

@@ -60,6 +60,7 @@ fun PermissionsSettingsScreen(
     onRequestCameraPermission: () -> Unit,
     onRequestMicrophonePermission: () -> Unit,
     onRequestLocationPermission: () -> Unit,
+    onRequestReceiveSmsPermission: () -> Unit,
     modifier: Modifier = Modifier,
     viewModel: MainViewModel = hiltViewModel(),
 ) {
@@ -72,6 +73,7 @@ fun PermissionsSettingsScreen(
     val isCameraPermissionGranted by viewModel.isCameraPermissionGranted.collectAsStateWithLifecycle()
     val isMicrophonePermissionGranted by viewModel.isMicrophonePermissionGranted.collectAsStateWithLifecycle()
     val isLocationPermissionGranted by viewModel.isLocationPermissionGranted.collectAsStateWithLifecycle()
+    val isReceiveSmsPermissionGranted by viewModel.isReceiveSmsPermissionGranted.collectAsStateWithLifecycle()
 
     // Refresh permissions on ON_RESUME
     DisposableEffect(lifecycleOwner) {
@@ -194,6 +196,21 @@ fun PermissionsSettingsScreen(
                     },
                 onAction = onRequestLocationPermission,
                 actionEnabled = !isLocationPermissionGranted,
+            )
+
+            Spacer(modifier = Modifier.height(8.dp))
+
+            PermissionRow(
+                label = stringResource(R.string.permission_receive_sms),
+                isEnabled = isReceiveSmsPermissionGranted,
+                buttonText =
+                    if (isReceiveSmsPermissionGranted) {
+                        stringResource(R.string.permission_granted)
+                    } else {
+                        stringResource(R.string.permission_grant)
+                    },
+                onAction = onRequestReceiveSmsPermission,
+                actionEnabled = !isReceiveSmsPermissionGranted,
             )
 
             // Background Location is geofence-only; rendered via a flavor seam (gms only).

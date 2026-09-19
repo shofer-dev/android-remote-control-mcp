@@ -11,6 +11,7 @@ import androidx.navigation.compose.composable
 import androidx.navigation.compose.rememberNavController
 import com.danielealbano.androidremotecontrolmcp.ui.navigation.SettingsRoute
 import com.danielealbano.androidremotecontrolmcp.ui.screens.settings.ChannelSettingsScreen
+import com.danielealbano.androidremotecontrolmcp.ui.screens.settings.DeviceEventsSettingsScreen
 import com.danielealbano.androidremotecontrolmcp.ui.screens.settings.GeneralSettingsScreen
 import com.danielealbano.androidremotecontrolmcp.ui.screens.settings.McpToolsSettingsScreen
 import com.danielealbano.androidremotecontrolmcp.ui.screens.settings.NotificationFilterScreen
@@ -28,6 +29,7 @@ fun SettingsScreen(
     onRequestCameraPermission: () -> Unit,
     onRequestMicrophonePermission: () -> Unit,
     onRequestLocationPermission: () -> Unit,
+    onRequestReceiveSmsPermission: () -> Unit,
     pendingRoute: String? = null,
     onPendingRouteConsumed: () -> Unit = {},
     modifier: Modifier = Modifier,
@@ -66,11 +68,15 @@ fun SettingsScreen(
                 onRequestCameraPermission = onRequestCameraPermission,
                 onRequestMicrophonePermission = onRequestMicrophonePermission,
                 onRequestLocationPermission = onRequestLocationPermission,
+                onRequestReceiveSmsPermission = onRequestReceiveSmsPermission,
                 viewModel = viewModel,
             )
         }
         composable(SettingsRoute.Storage.route) {
             StorageSettingsScreen(onBack = { navController.popBackStack() }, viewModel = viewModel)
+        }
+        composable(SettingsRoute.DeviceEvents.route) {
+            DeviceEventsSettingsScreen(onBack = { navController.popBackStack() })
         }
         composable(SettingsRoute.ChannelSettings.route) {
             ChannelSettingsScreen(

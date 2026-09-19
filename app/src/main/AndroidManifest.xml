@@ -86,6 +86,24 @@
     <uses-permission android:name="android.permission.READ_PHONE_NUMBERS" />
     <uses-permission android:name="android.permission.READ_PHONE_STATE" />
 
+    <!--
+      Device event reporting, the `sms` category (services/connector/events/SmsEventSource.kt).
+      RECEIVE_SMS is dangerous and OPTIONAL here: a handset whose holder declines it operates
+      completely and reports every other category, so its absence costs one log line and silence.
+
+      There is deliberately NO manifest <receiver> for SMS_RECEIVED. A declared one would make this
+      app a candidate SMS handler — which it is not, since it never reads the inbox and never sends
+      — so the receiver is registered at runtime and lives exactly as long as one connector socket.
+
+      READ_CALL_LOG is deliberately NOT requested, which is why the `call` category's payload
+      reports an empty `number`: READ_PHONE_STATE yields the call STATE only on modern Android, and
+      the caller id needs the call-log group. That group discloses the handset's entire call history
+      to populate one field, and Play treats it as a restricted permission needing an approved
+      default-handler use case this app does not have. A ringing event with no number is still what
+      the reporting plane exists for.
+    -->
+    <uses-permission android:name="android.permission.RECEIVE_SMS" />
+
     <!-- Media read access (optional — enables "all files" mode for built-in storage locations) -->
     <uses-permission android:name="android.permission.READ_MEDIA_IMAGES" />
     <uses-permission android:name="android.permission.READ_MEDIA_VIDEO" />

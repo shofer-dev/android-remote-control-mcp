@@ -110,6 +110,8 @@
     <string name="permission_audit_microphone_reason">Recording audio when asked to.</string>
     <string name="permission_audit_location">Location</string>
     <string name="permission_audit_location_reason">Reporting where this device is, including when you ask your organisation to locate it.</string>
+    <string name="permission_audit_sms">Text messages</string>
+    <string name="permission_audit_sms_reason">Reporting incoming text messages to your organisation. Without it this device reports every other kind of event and nothing else changes.</string>
     <string name="connector_terms_title">Enrolment Terms</string>
     <string name="connector_terms_accept">Accept</string>
     <string name="connector_terms_decline">Decline</string>
@@ -141,6 +143,21 @@
     <string name="settings_permissions_subtitle">Accessibility, camera, microphone</string>
     <string name="settings_storage_title">Storage</string>
     <string name="settings_storage_subtitle">Storage locations, file limits</string>
+    <string name="settings_device_events_title">Device reporting</string>
+    <string name="settings_device_events_subtitle">What this device tells your organisation</string>
+
+    <!-- Device Event Reporting -->
+    <string name="device_events_intro">Choose what this device reports to your organisation as it happens. Your organisation may narrow this further, but it can never switch on something you have switched off here.</string>
+    <string name="device_events_notification">Notifications</string>
+    <string name="device_events_notification_detail">The app, title and text of each notification that arrives.</string>
+    <string name="device_events_call">Calls</string>
+    <string name="device_events_call_detail">When this phone starts ringing, is answered, or hangs up. The caller\'s number is never reported.</string>
+    <string name="device_events_sms">Text messages</string>
+    <string name="device_events_sms_detail">The sender and text of each message that arrives.</string>
+    <string name="device_events_connectivity">Connection</string>
+    <string name="device_events_connectivity_detail">Switching between Wi-Fi and mobile data, and going offline.</string>
+    <string name="device_events_battery">Battery</string>
+    <string name="device_events_battery_detail">Charging starting or stopping, and the charge level every ten per cent.</string>
 
     <!-- About Screen -->
     <string name="about_version">Build %1$s</string>
@@ -205,6 +222,7 @@
     <string name="permission_microphone">Microphone</string>
     <string name="permission_notification_listener">Notification Listener</string>
     <string name="permission_location">Location</string>
+    <string name="permission_receive_sms">Text messages</string>
 
     <!-- Permission Warning -->
 

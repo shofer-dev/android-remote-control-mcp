@@ -77,6 +77,7 @@ fun MainScreen(
                     onRequestCameraPermission = permissionRequesters.onRequestCamera,
                     onRequestMicrophonePermission = permissionRequesters.onRequestMicrophone,
                     onRequestLocationPermission = permissionRequesters.onRequestLocation,
+                    onRequestReceiveSmsPermission = permissionRequesters.onRequestReceiveSms,
                     pendingRoute = pendingSettingsRoute,
                     onPendingRouteConsumed = { pendingSettingsRoute = null },
                     modifier = Modifier.padding(paddingValues),

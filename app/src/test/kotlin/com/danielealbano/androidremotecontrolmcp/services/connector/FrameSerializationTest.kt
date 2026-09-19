@@ -2,14 +2,21 @@
 
 package com.danielealbano.androidremotecontrolmcp.services.connector
 
+import com.danielealbano.androidremotecontrolmcp.services.connector.events.BatteryState
+import com.danielealbano.androidremotecontrolmcp.services.connector.events.DeviceEvent
+import com.danielealbano.androidremotecontrolmcp.services.connector.events.DeviceEventReporter
+import com.danielealbano.androidremotecontrolmcp.services.connector.events.EventPayloads
 import com.danielealbano.androidremotecontrolmcp.services.connector.protocol.ActionName
 import com.danielealbano.androidremotecontrolmcp.services.connector.protocol.Capability
 import com.danielealbano.androidremotecontrolmcp.services.connector.protocol.ConnectorJson
+import com.danielealbano.androidremotecontrolmcp.services.connector.protocol.DeviceEventCategory
 import com.danielealbano.androidremotecontrolmcp.services.connector.protocol.Frame
 import com.danielealbano.androidremotecontrolmcp.services.connector.protocol.FrameType
 import com.danielealbano.androidremotecontrolmcp.services.connector.protocol.StreamError
+import com.danielealbano.androidremotecontrolmcp.services.connector.protocol.WireError
 import com.danielealbano.androidremotecontrolmcp.services.selfupdate.UpdateRefusal
 import com.danielealbano.androidremotecontrolmcp.services.selfupdate.UpdateSpec
+import kotlinx.serialization.json.buildJsonObject
 import kotlinx.serialization.json.jsonObject
 import kotlinx.serialization.json.jsonPrimitive
 import org.junit.jupiter.api.Assertions.assertEquals
@@ -282,5 +289,63 @@ class FrameSerializationTest {
             )
         assertEquals("unauthorized", frame.error)
         assertTrue(frame.details!!.contains("revoked"))
+    }
+
+    @Test
+    fun `an event frame carries exactly type, category, occurred_at and payload`() {
+        // The device-event plane's one outbound shape (`docs/phone/device_events.md` §3). The
+        // gateway gates `category` against its own vocabulary and forwards `payload` untouched, so
+        // a fourth key here would be a field nothing reads and a renamed one an absent field.
+        val json =
+            encode(
+                DeviceEventReporter.frameFor(
+                    DeviceEvent(
+                        category = DeviceEventCategory.BATTERY,
+                        occurredAtMillis = 1_757_000_000_000,
+                        payload = EventPayloads.battery(BatteryState(level = 42, charging = true)),
+                    ),
+                ),
+            )
+        assertEquals(setOf("type", "category", "occurred_at", "payload"), keys(json))
+        assertTrue(json.contains("\"type\":\"event\""))
+        assertTrue(json.contains("\"category\":\"battery\""))
+        assertTrue(json.contains("\"occurred_at\":\"2025-09-04T15:33:20Z\""))
+        assertTrue(json.contains("""{"level":42,"charging":true}"""))
+        assertFalse(json.contains("null"))
+    }
+
+    @Test
+    fun `every category's frame spells its wire name`() {
+        DeviceEventCategory.entries.forEach { category ->
+            val frame =
+                DeviceEventReporter.frameFor(
+                    DeviceEvent(category, occurredAtMillis = 0, payload = buildJsonObject { }),
+                )
+            assertEquals(category.wire, frame.category)
+        }
+        assertEquals(
+            setOf("notification", "call", "sms", "connectivity", "battery"),
+            DeviceEventCategory.entries.map { it.wire }.toSet(),
+        )
+    }
+
+    @Test
+    fun `an unknown-event-category refusal decodes with the rejected spelling in details`() {
+        // The gateway ANSWERS rather than dropping, because it is always the older half of this
+        // pair — so a category it does not know is a bug in this build, and `details` names it.
+        val frame =
+            ConnectorJson.decodeFromString(
+                Frame.serializer(),
+                """{"type":"error","error":"unknown-event-category","details":"geofence"}""",
+            )
+        assertEquals(WireError.UNKNOWN_EVENT_CATEGORY, frame.error)
+        assertEquals("geofence", frame.details)
+    }
+
+    @Test
+    fun `a non-event frame emits neither category nor occurred_at`() {
+        val json = encode(Frame(type = FrameType.PING))
+        assertFalse(json.contains("category"))
+        assertFalse(json.contains("occurred_at"))
     }
 }

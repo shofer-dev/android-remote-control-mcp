@@ -25,7 +25,10 @@ import kotlinx.serialization.json.JsonElement
  * - [attestation] any JSON value; Android key-attestation material, stored verbatim.
  * - [nonce]       attach challenge, 64 lowercase hex characters.
  * - [signature]   base64 ed25519 signature over the ASCII bytes of the [nonce] STRING.
- * - [payload]     opaque MCP JSON-RPC frame (relay leg) or an action_result body.
+ * - [payload]     opaque MCP JSON-RPC frame (relay leg), an action_result body, or the
+ *                 per-category body of an [FrameType.EVENT] report.
+ * - [category]    the device-event category ([DeviceEventCategory]) an `event` frame reports.
+ * - [occurredAt]  when that event happened, RFC3339, on the HANDSET's own clock.
  * - [id]          transport-scoped exchange id, server-minted on `cmd`/`action`.
  * - [messageId]   sender-minted logical idempotency key (relay leg), may be absent.
  * - [error]       the gateway's typed refusal code ([WireError]).
@@ -53,6 +56,22 @@ data class Frame(
     val nonce: String? = null,
     val signature: String? = null,
     val payload: JsonElement? = null,
+    /**
+     * The category of an [FrameType.EVENT] report — one of [DeviceEventCategory]'s wire spellings.
+     *
+     * Absent on every other frame type. The gateway gates it against its own vocabulary and answers
+     * [WireError.UNKNOWN_EVENT_CATEGORY] to a spelling it does not know, rather than dropping the
+     * frame, so a mis-spelled category is a bug this connector's author can see.
+     */
+    val category: String? = null,
+    /**
+     * When the reported event happened, RFC3339, read from the HANDSET's own wall clock.
+     *
+     * The phone's clock rather than the gateway's arrival time, because an event is a statement
+     * about the device's world: a report delayed by a reconnect must still say when it happened,
+     * not when it was finally delivered.
+     */
+    @SerialName("occurred_at") val occurredAt: String? = null,
     val action: String? = null,
     val params: JsonElement? = null,
     val policy: DevicePolicy? = null,
@@ -124,6 +143,20 @@ object FrameType {
      */
     const val UPDATE_CHECK = "update_check"
 
+    /**
+     * A device-event report (`docs/phone/device_events.md` §3): `{category, occurred_at, payload}`.
+     *
+     * The phone leg's ONE unsolicited frame — the twin of the host leg's `host_telephony_event` —
+     * and the only one this connector sends that answers no question. Nothing waits on it and it is
+     * never acknowledged: an event is ADVISORY, so a report the gateway sheds is lost rather than
+     * queued, and the device is deliberately not told.
+     *
+     * Forwarding is decided BEFORE the frame is built, by the intersection of the holder's
+     * per-category toggles and the platform's policy
+     * ([EventGate][com.danielealbano.androidremotecontrolmcp.services.connector.events.EventGate]).
+     */
+    const val EVENT = "event"
+
     // Gateway → device
     const val TERMS = "terms"
     const val ENROLLED = "enrolled"
@@ -191,12 +224,12 @@ object StreamError {
 }
 
 /**
- * The six typed refusal codes that can actually arrive on the device socket (wire spec §5).
+ * The seven typed refusal codes that can actually arrive on the device socket (wire spec §5).
  * The other six declared codes (`phone_offline`/`phone_busy`/… and `action-unsupported`,
  * `not-applicable`) only ever reach HTTP callers, never a device, so they are not modelled
  * here — but a handler must branch defensively since they share the vocabulary.
  *
- * Note the spelling split, exactly as the Go constants read: these six are hyphenated.
+ * Note the spelling split, exactly as the Go constants read: these seven are hyphenated.
  */
 object WireError {
     const val BAD_FRAME = "bad-frame"
@@ -205,6 +238,18 @@ object WireError {
     const val TERMS_REQUIRED = "terms-required"
     const val UPGRADE_REQUIRED = "upgrade-required"
     const val UNAUTHORIZED = "unauthorized"
+
+    /**
+     * An [FrameType.EVENT] whose `category` this gateway does not know; `details` names the
+     * spelling that was rejected (`protocol.ErrUnknownEventCategory`).
+     *
+     * It is a CONNECTOR bug rather than version skew, which is why the gateway answers it instead
+     * of dropping the frame quietly: the platform distributes the APK, so a gateway is always
+     * upgraded before the fleet it serves and an app can never legitimately be ahead of it. So the
+     * connector logs it DISTINCTLY — at error, naming the category — and carries on: nothing on the
+     * device waits on an event frame, so there is no exchange to fail and no reconnect to trigger.
+     */
+    const val UNKNOWN_EVENT_CATEGORY = "unknown-event-category"
 }
 
 /**

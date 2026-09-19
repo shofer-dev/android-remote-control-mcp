@@ -12,6 +12,7 @@ import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.KeyboardArrowRight
 import androidx.compose.material.icons.filled.AdminPanelSettings
 import androidx.compose.material.icons.filled.Build
+import androidx.compose.material.icons.filled.Campaign
 import androidx.compose.material.icons.filled.Folder
 import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.Icon
@@ -58,8 +59,8 @@ fun SettingsIndexScreen(
  * from the platform.
  *
  * What remains all governs behaviour the connector DOES exercise: which tools a relayed command
- * may reach, the OS permissions those tools need, and the storage locations and download limits
- * the file tools operate under.
+ * may reach, the OS permissions those tools need, the storage locations and download limits the
+ * file tools operate under, and what this device REPORTS on its own initiative.
  */
 @Composable
 private fun SettingsEntriesColumn(
@@ -84,6 +85,12 @@ private fun SettingsEntriesColumn(
             title = stringResource(R.string.settings_storage_title),
             subtitle = stringResource(R.string.settings_storage_subtitle),
             onClick = { onNavigate(SettingsRoute.Storage.route) },
+        )
+        SettingsEntry(
+            icon = Icons.Default.Campaign,
+            title = stringResource(R.string.settings_device_events_title),
+            subtitle = stringResource(R.string.settings_device_events_subtitle),
+            onClick = { onNavigate(SettingsRoute.DeviceEvents.route) },
         )
     }
 }

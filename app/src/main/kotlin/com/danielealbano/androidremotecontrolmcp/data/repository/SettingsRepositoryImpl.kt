@@ -10,10 +10,12 @@ import androidx.datastore.preferences.core.stringPreferencesKey
 import com.danielealbano.androidremotecontrolmcp.data.model.BindingAddress
 import com.danielealbano.androidremotecontrolmcp.data.model.BuiltinPermissions
 import com.danielealbano.androidremotecontrolmcp.data.model.ConnectorConfig
+import com.danielealbano.androidremotecontrolmcp.data.model.DeviceEventConfig
 import com.danielealbano.androidremotecontrolmcp.data.model.EventChannelConfig
 import com.danielealbano.androidremotecontrolmcp.data.model.NotificationFilterMode
 import com.danielealbano.androidremotecontrolmcp.data.model.ServerConfig
 import com.danielealbano.androidremotecontrolmcp.data.model.ToolPermissionsConfig
+import com.danielealbano.androidremotecontrolmcp.services.connector.protocol.DeviceEventCategory
 import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.flow.map
@@ -532,6 +534,25 @@ class SettingsRepositoryImpl
         override suspend fun updateWifiNotifyOnDisconnected(enabled: Boolean) =
             updateEventChannelConfig { it.copy(wifi = it.wifi.copy(notifyOnDisconnected = enabled)) }
 
+        // --- Device event reporting ---
+
+        override val deviceEventConfig: Flow<DeviceEventConfig> =
+            dataStore.data.map { prefs ->
+                DeviceEventConfig.fromJsonOrDefault(prefs[DEVICE_EVENT_CONFIG_KEY])
+            }
+
+        override suspend fun getDeviceEventConfig(): DeviceEventConfig = deviceEventConfig.first()
+
+        override suspend fun updateDeviceEventCategoryEnabled(
+            category: DeviceEventCategory,
+            enabled: Boolean,
+        ) {
+            val updated = getDeviceEventConfig().with(category, enabled)
+            dataStore.edit { prefs ->
+                prefs[DEVICE_EVENT_CONFIG_KEY] = updated.toJson()
+            }
+        }
+
         // --- Platform Connector ---
 
         override val connectorConfig: Flow<ConnectorConfig> =
@@ -625,6 +646,9 @@ class SettingsRepositoryImpl
             private val AUTHORIZED_LOCATIONS_KEY = stringPreferencesKey("authorized_storage_locations")
             private val BUILTIN_LOCATION_PERMISSIONS_KEY = stringPreferencesKey("builtin_location_permissions")
             private val EVENT_CHANNEL_CONFIG_KEY = stringPreferencesKey("event_channel_config")
+
+            /** The platform plane's per-category toggles. Its OWN key — see [DeviceEventConfig]. */
+            private val DEVICE_EVENT_CONFIG_KEY = stringPreferencesKey("device_event_config")
             private val CONNECTOR_CONFIG_KEY = stringPreferencesKey("connector_config")
             private val CONNECTOR_KEEP_ALIVE_HINT_KEY = booleanPreferencesKey("connector_keep_alive_hint_dismissed")
         }

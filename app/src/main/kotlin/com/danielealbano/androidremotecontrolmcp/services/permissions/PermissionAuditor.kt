@@ -9,6 +9,7 @@ import androidx.core.app.NotificationCompat
 import com.danielealbano.androidremotecontrolmcp.McpApplication
 import com.danielealbano.androidremotecontrolmcp.R
 import com.danielealbano.androidremotecontrolmcp.services.accessibility.McpAccessibilityService
+import com.danielealbano.androidremotecontrolmcp.services.connector.events.SmsEventSource
 import com.danielealbano.androidremotecontrolmcp.services.deviceadmin.PlatformDeviceAdminReceiver
 import com.danielealbano.androidremotecontrolmcp.services.notifications.McpNotificationListenerService
 import com.danielealbano.androidremotecontrolmcp.ui.MainActivity
@@ -89,8 +90,9 @@ class PermissionAuditor
         /**
          * Reads the real state of each audited grant. Every check is the one the rest of the app
          * already trusts for that decision — [PermissionUtils] for the runtime permissions and the
-         * two service bindings, [PlatformDeviceAdminReceiver.isAdminActive] for admin — so the
-         * audit can never disagree with the code that actually fails.
+         * two service bindings, [PlatformDeviceAdminReceiver.isAdminActive] for admin,
+         * [SmsEventSource.isGranted] for SMS reception — so the audit can never disagree with the
+         * code that actually fails.
          */
         private fun snapshot(): PermissionSnapshot {
             val powerManager = context.getSystemService(PowerManager::class.java)
@@ -112,6 +114,7 @@ class PermissionAuditor
                     RequiredPermission.CAMERA to PermissionUtils.isCameraPermissionGranted(context),
                     RequiredPermission.MICROPHONE to PermissionUtils.isMicrophonePermissionGranted(context),
                     RequiredPermission.LOCATION to PermissionUtils.isLocationPermissionGranted(context),
+                    RequiredPermission.RECEIVE_SMS to SmsEventSource.isGranted(context),
                 ),
             )
         }

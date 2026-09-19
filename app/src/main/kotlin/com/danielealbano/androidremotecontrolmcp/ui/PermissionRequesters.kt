@@ -3,11 +3,11 @@ package com.danielealbano.androidremotecontrolmcp.ui
 import androidx.compose.runtime.Immutable
 
 /**
- * The four runtime-permission requests, bundled.
+ * The five runtime-permission requests, bundled.
  *
  * They travel together everywhere — [MainActivity] owns the `ActivityResultLauncher`s and every
- * screen below only forwards them — so passing them as one value says what four adjacent lambda
- * parameters did not: that this is one capability, not four unrelated callbacks that happen to
+ * screen below only forwards them — so passing them as one value says what five adjacent lambda
+ * parameters did not: that this is one capability, not five unrelated callbacks that happen to
  * have the same shape. It is also what keeps the screens that carry them under the parameter
  * count the linter enforces, without a suppression.
  *
@@ -20,4 +20,6 @@ data class PermissionRequesters(
     val onRequestCamera: () -> Unit,
     val onRequestMicrophone: () -> Unit,
     val onRequestLocation: () -> Unit,
+    /** `RECEIVE_SMS`, which gates the `sms` device-event category and nothing else. */
+    val onRequestReceiveSms: () -> Unit,
 )

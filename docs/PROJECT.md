@@ -574,6 +574,80 @@ a 94-byte metadata block carrying the display's REAL pixel size (the coordinate 
 mapped through), then one Annex-B NAL per binary message behind a four-byte start code.
 `ViewerStreamContract` owns it and `ViewerStreamContractTest` pins it byte for byte.
 
+### Device event reporting
+
+While attached, the device REPORTS what happens to it — a notification posted, a call ringing, an
+SMS, the transport switching, the battery crossing a decade — as unsolicited `event` frames
+`{category, occurred_at, payload}`. It is the only thing this leg sends that answers no question,
+and nothing waits on it: an event is ADVISORY, so one the gateway sheds is lost rather than queued.
+The plane lives in `services/connector/events/`, deliberately NOT in `services/channel/` — that is
+upstream's HTTP webhook plugin with its own dispatcher and config blob, and folding the platform's
+categories into it would make one persisted object mean two unrelated features.
+
+Five categories, and a category is the unit of everything — of the holder's consent, of the
+platform's filtering, of the bus topic's address, of the agent's wake policy:
+
+| category | source | payload |
+|---|---|---|
+| `notification` | the EXISTING bound `McpNotificationListenerService` flow, POSTED only | `{package, app_name, title, text, posted_at, key}` |
+| `call` | `TelephonyCallback.CallStateListener` (API 31+, no `PhoneStateListener` fallback — `minSdk` is 31) | `{state ∈ ringing\|active\|disconnected, number}` |
+| `sms` | a RUNTIME-registered `SMS_RECEIVED` receiver, multipart concatenated into one event | `{from, body, received_at}` |
+| `connectivity` | `registerDefaultNetworkCallback` | `{transport ∈ wifi\|cellular\|none, online}` |
+| `battery` | a runtime-registered `ACTION_BATTERY_CHANGED` receiver | `{level, charging}` |
+
+- **Forwarding is an AND, enforced on the DEVICE.** The holder's per-category switches (Settings →
+  Device reporting, all on by default, persisted under its own `device_event_config` DataStore key)
+  AND the policy snapshot's new `events` section — per-category enable, plus a per-app
+  allow/block filter for `notification` alone. Neither side can widen what the other refused. The
+  intersection is `events/EventGate.kt`, one pure function, unit-tested per category.
+- **That section fails OPEN, which is the opposite of the rest of the snapshot.** An absent `events`
+  object, an absent category key and empty app lists all mean PERMITTED. `PolicyEnforcer` refuses
+  every command with no snapshot because driving a handset is an act; reporting is advisory and
+  already bounded by the holder's own switches, so a policy that had not arrived must not blind the
+  plane for the life of a socket. Policy only ever narrows.
+- **`connectivity` and `battery` emit on CHANGE only** — charging began or ended, the transport or
+  the `online` verdict moved, the level crossed a decade — never on a timer, so a healthy idle phone
+  is silent. `ACTION_BATTERY_CHANGED` fires several times a minute on a charging handset, so this is
+  the difference between a reporting plane and a firehose the gateway's token bucket would shed.
+  The rules are pure classes (`events/StateChange.kt`) and are tested rather than trusted. `call`
+  has its own rule for the same reason and a sharper cost: it is the one category that WAKES the
+  agent, and `CallStateListener` re-states the current state on registration — so a first state of
+  `disconnected` is dropped, or every reconnect would spend a turn on a call that never happened.
+- **The first reading of `connectivity` and `battery` IS reported.** It is the change from "the
+  platform knows nothing" to a known value, it costs one event per attach per category, and without
+  it a level that then sits still for days would never be learnt at all.
+- **A missing permission reports nothing and says so once** — no crash, no retry loop. `RECEIVE_SMS`
+  is a runtime permission and OPTIONAL: a handset whose holder declined it operates completely and
+  reports the other four categories, which is why the audit classifies it as a tool surface rather
+  than an operational gap. There is deliberately no manifest `<receiver>` for `SMS_RECEIVED` — that
+  would make this app a candidate SMS handler, which it is not.
+- **`READ_CALL_LOG` is deliberately not requested, so `call` reports an empty `number`.**
+  `READ_PHONE_STATE` yields the call STATE only on modern Android; the caller id needs the call-log
+  group, which discloses the handset's entire call history to populate one field and which Play
+  treats as a restricted permission needing an approved default-handler use case this app has none
+  of. A ringing event with no number is still what the plane exists for — it is what wakes the agent.
+- **An unknown category is ANSWERED, not dropped.** The gateway replies `unknown-event-category`
+  with the rejected spelling in `details`, because the platform ships the APK and the gateway is
+  therefore always the older half of the pair: a category it does not know is a bug in the app, not
+  skew to tolerate. The connector logs it distinctly and keeps the socket — nothing waited on the
+  frame.
+- **The reporter's lifetime is one socket.** It starts on `attached` (the gateway answers `bad-frame`
+  to anything earlier) and is cancelled in the same `finally` as the heartbeat and the keyguard
+  watch, because every source is an OS registration and leaving them collected would leak one set
+  per reconnect.
+- **REGISTRATION NEVER WAITS ON ANYTHING, and the sources are failure-isolated.** Nothing suspends
+  in `DeviceEventReporter.reports()` before the loop that starts the five sources; the holder's
+  toggles are awaited per EVENT, not before registration. This is not a style preference — it is a
+  live bug this plane already had: an earlier version read the toggles (a suspending DataStore read)
+  first, the read did not return on the bench phone, and *not one source registered with the OS* for
+  the whole life of the socket, with no exception and no log to say so. Each source is also
+  collected in its own child with its own catch, so one vendor ROM refusing a registration costs
+  that category and not the other four. `reports()` logs at INFO when it starts (naming the source
+  count) and when it stops, and at ERROR when a source or the settings read fails — a reporting
+  plane that is silent *and* invisible is the one failure mode it must never have again.
+
+Cross-service design: `docs/phone/device_events.md` in the platform repository.
+
 ### Platform identity, and the two ways it ends
 
 The identity is TWO durable things: `ConnectorConfig.deviceId` and the ed25519 keypair

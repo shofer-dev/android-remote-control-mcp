@@ -13,6 +13,7 @@ import com.danielealbano.androidremotecontrolmcp.McpApplication
 import com.danielealbano.androidremotecontrolmcp.R
 import com.danielealbano.androidremotecontrolmcp.data.repository.SettingsRepository
 import com.danielealbano.androidremotecontrolmcp.services.connector.crypto.DeviceIdentity
+import com.danielealbano.androidremotecontrolmcp.services.connector.events.DeviceEventReporter
 import com.danielealbano.androidremotecontrolmcp.services.connector.indicator.RemoteActivityIndicator
 import com.danielealbano.androidremotecontrolmcp.services.connector.policy.PolicyEnforcer
 import com.danielealbano.androidremotecontrolmcp.services.mcp.McpToolServerFactory
@@ -108,23 +109,7 @@ class PlatformConnectorService : Service() {
             Log.w(TAG, "Connector already running; ignoring duplicate start")
             return
         }
-        val platformConnector =
-            PlatformConnector(
-                appContext = applicationContext,
-                scope = serviceScope,
-                settingsRepository = settingsRepository,
-                deviceIdentity = deviceIdentity,
-                actionHandler = actionHandler,
-                termsBroker = termsBroker,
-                provisioning = provisioning,
-                serverFactory = serverFactory,
-                policyEnforcer = policyEnforcer,
-                activityIndicator = activityIndicator,
-                screenStream = screenStream,
-                screenLock = AndroidScreenLockMonitor(applicationContext),
-                selfUpdater = selfUpdater,
-                clock = clock,
-            )
+        val platformConnector = buildConnector()
         connector = platformConnector
 
         serviceScope.launch {
@@ -174,6 +159,43 @@ class PlatformConnectorService : Service() {
         }
         serviceScope.launch { platformConnector.run() }
     }
+
+    /**
+     * The connector itself — everything this service injects, assembled. Separated from
+     * [startConnector] so the wiring reads as one list and the start reads as one sequence.
+     */
+    private fun buildConnector(): PlatformConnector =
+        PlatformConnector(
+            appContext = applicationContext,
+            scope = serviceScope,
+            settingsRepository = settingsRepository,
+            deviceIdentity = deviceIdentity,
+            actionHandler = actionHandler,
+            termsBroker = termsBroker,
+            provisioning = provisioning,
+            serverFactory = serverFactory,
+            policyEnforcer = policyEnforcer,
+            activityIndicator = activityIndicator,
+            screenStream = screenStream,
+            screenLock = AndroidScreenLockMonitor(applicationContext),
+            selfUpdater = selfUpdater,
+            deviceEvents = deviceEventReporter(),
+            clock = clock,
+        )
+
+    /**
+     * The device-event reporter for the connector this service is about to start.
+     *
+     * The policy is supplied as a LAMBDA rather than by value: the snapshot in force is replaced on
+     * every `policy` frame and cleared when a socket ends, so a copy taken here would be a policy
+     * the platform may already have changed.
+     */
+    private fun deviceEventReporter(): DeviceEventReporter =
+        DeviceEventReporter(
+            sources = DeviceEventReporter.all(applicationContext),
+            settingsRepository = settingsRepository,
+            policy = { policyEnforcer.policy },
+        )
 
     override fun onDestroy() {
         Log.i(TAG, "PlatformConnectorService destroying")

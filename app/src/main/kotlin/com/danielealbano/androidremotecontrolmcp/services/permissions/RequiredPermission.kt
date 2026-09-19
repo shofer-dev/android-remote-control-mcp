@@ -166,6 +166,22 @@ enum class RequiredPermission(
         reasonRes = R.string.permission_audit_microphone_reason,
     ),
 
+    /**
+     * The `sms` device-event category alone (`services/connector/events/SmsEventSource.kt`).
+     *
+     * A TOOL_SURFACE gap by the same test as the camera: the device is operated exactly as well
+     * without it, and one of five reporting categories goes quiet. Raising it to OPERATIONAL would
+     * put a permanent row in the notification shade of every phone whose holder reasonably declined
+     * SMS access, which is how a shade nudge gets trained away.
+     */
+    RECEIVE_SMS(
+        kind = PermissionKind.RUNTIME,
+        criticality = PermissionCriticality.TOOL_SURFACE,
+        remedy = PermissionRemedy.RUNTIME_REQUEST,
+        labelRes = R.string.permission_audit_sms,
+        reasonRes = R.string.permission_audit_sms_reason,
+    ),
+
     /** The location tool family, and the custody plane's `locate` action. */
     LOCATION(
         kind = PermissionKind.RUNTIME,

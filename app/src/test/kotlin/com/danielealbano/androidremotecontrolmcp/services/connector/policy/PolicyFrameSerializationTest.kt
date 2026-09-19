@@ -1,6 +1,7 @@
 package com.danielealbano.androidremotecontrolmcp.services.connector.policy
 
 import com.danielealbano.androidremotecontrolmcp.services.connector.protocol.ConnectorJson
+import com.danielealbano.androidremotecontrolmcp.services.connector.protocol.DeviceEventCategory
 import com.danielealbano.androidremotecontrolmcp.services.connector.protocol.Frame
 import com.danielealbano.androidremotecontrolmcp.services.connector.protocol.FrameType
 import org.junit.jupiter.api.Assertions.assertEquals
@@ -82,5 +83,40 @@ class PolicyFrameSerializationTest {
     fun `a non-policy frame carries no snapshot and emits no policy key`() {
         val encoded = ConnectorJson.encodeToString(Frame.serializer(), Frame(type = FrameType.PING))
         assertFalse(encoded.contains("policy"))
+    }
+
+    @Test
+    fun `the events section decodes field for field`() {
+        // The gateway renders ALL FIVE category keys, so this is the snapshot shape a device really
+        // meets (`protocol.EventPolicy`). A renamed key here does not fail — it silently decodes to
+        // the default, which on THIS section means "everything permitted".
+        val json =
+            """
+            {"type":"policy","policy":{"version":"a","issued_at":"t","active_hours":"",
+            "drivable_app_posture":"on-phone-list","drivable_apps":[],
+            "rate_limit":{"commands":0,"window_seconds":0},"paused":false,
+            "events":{"categories":{"notification":true,"call":true,"sms":false,
+            "connectivity":true,"battery":true},
+            "notification_apps":{"allow":["com.example.mail"],"block":["com.example.games"]}}}}
+            """.trimIndent()
+        val policy = ConnectorJson.decodeFromString(Frame.serializer(), json).policy
+        requireNotNull(policy)
+        assertTrue(policy.events.permits(DeviceEventCategory.NOTIFICATION))
+        assertFalse(policy.events.permits(DeviceEventCategory.SMS))
+        assertEquals(listOf("com.example.mail"), policy.events.notificationApps.allow)
+        assertEquals(listOf("com.example.games"), policy.events.notificationApps.block)
+    }
+
+    @Test
+    fun `a snapshot with no events section permits every category`() {
+        // The one section of this snapshot that fails OPEN, and deliberately: reporting is
+        // advisory, the holder's toggles are the other conjunct, and policy only ever NARROWS.
+        // Every other field on this frame fails closed — see PolicyEnforcer.
+        val policy = ConnectorJson.decodeFromString(Frame.serializer(), gatewayFrame).policy
+        requireNotNull(policy)
+        DeviceEventCategory.entries.forEach { category ->
+            assertTrue(policy.events.permits(category), "$category should be permitted when policy said nothing")
+        }
+        assertTrue(policy.events.notificationApps.forwards("com.anything"))
     }
 }

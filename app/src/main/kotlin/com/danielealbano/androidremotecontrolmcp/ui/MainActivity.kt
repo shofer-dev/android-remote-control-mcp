@@ -23,6 +23,7 @@ class MainActivity : ComponentActivity() {
     private lateinit var cameraPermissionLauncher: ActivityResultLauncher<String>
     private lateinit var microphonePermissionLauncher: ActivityResultLauncher<String>
     private lateinit var locationPermissionLauncher: ActivityResultLauncher<String>
+    private lateinit var receiveSmsPermissionLauncher: ActivityResultLauncher<String>
 
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
@@ -56,6 +57,13 @@ class MainActivity : ComponentActivity() {
                 viewModel.refreshPermissionStatus(this)
             }
 
+        receiveSmsPermissionLauncher =
+            registerForActivityResult(
+                ActivityResultContracts.RequestPermission(),
+            ) { _ ->
+                viewModel.refreshPermissionStatus(this)
+            }
+
         val openPermissions = intent?.getBooleanExtra(EXTRA_OPEN_PERMISSIONS, false) == true
 
         setContent {
@@ -67,6 +75,7 @@ class MainActivity : ComponentActivity() {
                             onRequestCamera = ::requestCameraPermission,
                             onRequestMicrophone = ::requestMicrophonePermission,
                             onRequestLocation = ::requestLocationPermission,
+                            onRequestReceiveSms = ::requestReceiveSmsPermission,
                         ),
                     openPermissionsOnLaunch = openPermissions,
                 )
@@ -114,6 +123,13 @@ class MainActivity : ComponentActivity() {
 
     private fun requestLocationPermission() {
         locationPermissionLauncher.launch(Manifest.permission.ACCESS_FINE_LOCATION)
+    }
+
+    /**
+     * Requests the RECEIVE_SMS runtime permission, which gates the `sms` device-event category.
+     */
+    private fun requestReceiveSmsPermission() {
+        receiveSmsPermissionLauncher.launch(Manifest.permission.RECEIVE_SMS)
     }
 
     companion object {

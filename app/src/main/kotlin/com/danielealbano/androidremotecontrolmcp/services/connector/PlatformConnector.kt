@@ -20,6 +20,7 @@ import com.danielealbano.androidremotecontrolmcp.BuildConfig
 import com.danielealbano.androidremotecontrolmcp.data.model.ConnectorConfig
 import com.danielealbano.androidremotecontrolmcp.data.repository.SettingsRepository
 import com.danielealbano.androidremotecontrolmcp.services.connector.crypto.DeviceIdentity
+import com.danielealbano.androidremotecontrolmcp.services.connector.events.DeviceEventReporter
 import com.danielealbano.androidremotecontrolmcp.services.connector.indicator.RemoteActivityIndicator
 import com.danielealbano.androidremotecontrolmcp.services.connector.policy.PolicyDecision
 import com.danielealbano.androidremotecontrolmcp.services.connector.policy.PolicyEnforcer
@@ -110,6 +111,15 @@ import kotlin.random.Random
  *   holds no socket cannot be commanded by a dispatcher bug at all. It then sleeps until the
  *   window reopens rather than dialling on a backoff that would be refused all night.
  *
+ * ── The socket also carries what HAPPENS to the phone ──────────────────────────────────
+ * While attached, the connector reports device events — a notification posted, a call ringing, an
+ * SMS, the transport switching, the battery crossing a decade — as unsolicited `event` frames
+ * ([DeviceEventReporter], `docs/phone/device_events.md`). It is the one thing this leg sends that
+ * answers no question, and every rule about it lives in that package: whether a category may leave
+ * the phone is the intersection of the holder's toggles and the policy snapshot's `events` section,
+ * and the change-only rules that keep an idle handset silent are pure classes beside it. Here it is
+ * one job, started on `attached` and cancelled with the socket like every other watch.
+ *
  * ── The app's own version is part of what this socket carries ──────────────────────────
  * Every `attach` states this build's `app_version`, and two things ride on that. The platform can
  * PUSH an `update_app` action at a phone nobody is holding, executed by
@@ -150,6 +160,7 @@ class PlatformConnector(
     private val screenStream: ScreenStreamController,
     private val screenLock: ScreenLockMonitor,
     private val selfUpdater: SelfUpdater,
+    private val deviceEvents: DeviceEventReporter,
     private val appVersion: String = BuildConfig.VERSION_NAME,
     private val clock: MonotonicClock = MonotonicClock { SystemClock.elapsedRealtime() },
 ) {
@@ -370,6 +381,7 @@ class PlatformConnector(
         var heartbeat: Job? = null
         var screenLockWatch: Job? = null
         var updateCheckWatch: Job? = null
+        var eventReport: Job? = null
         var windowWatchdog: Job? = null
         var staleWatchdog: Job? = null
         // Every server answer rearms the watchdog, so silence — not a missing FIN — is what ends
@@ -426,6 +438,7 @@ class PlatformConnector(
                                         // building the attach frame and the attach completing.
                                         screenLockWatch = startScreenLockWatch()
                                         updateCheckWatch = startUpdateCheckWatch(ws)
+                                        eventReport = startEventReport()
                                     },
                                 ) {
                                     windowWatchdog?.cancel()
@@ -461,6 +474,11 @@ class PlatformConnector(
             // exists, and the next attach asks again. The ANSWER is deliberately kept — what the
             // platform publishes does not stop being true because a link dropped.
             updateCheckWatch?.cancel()
+            // The event sources die with the socket too, and that is the only correct lifetime for
+            // them: every one is an OS registration (a receiver, a telephony callback, a network
+            // callback), so leaving them collected would leak one set per reconnect — and an event
+            // built while no socket exists has nowhere to go anyway.
+            eventReport?.cancel()
             windowWatchdog?.cancel()
             staleWatchdog?.cancel()
             // The policy dies with the socket that delivered it: a reconnect refuses every
@@ -858,6 +876,16 @@ class PlatformConnector(
                     ConnectionResult.Reconnect
                 }
 
+                WireError.UNKNOWN_EVENT_CATEGORY -> {
+                    // Kept distinct from bad-frame, and it does NOT end the socket. The gateway is
+                    // always the older half of this pair (the platform ships the APK), so this is a
+                    // spelling bug in THIS build rather than skew to tolerate — but an advisory
+                    // report nobody waited on is not worth dropping a healthy connection over, and
+                    // reconnecting would only re-send the same category and be refused again.
+                    Log.e(TAG, "Gateway does not know event category '${details.orEmpty()}' — connector bug")
+                    null
+                }
+
                 else -> {
                     Log.w(TAG, "Unhandled refusal code '$code'")
                     ConnectionResult.Reconnect
@@ -964,6 +992,24 @@ class PlatformConnector(
             screenLock.states().collect { locked ->
                 send(Frame(type = FrameType.SCREEN_STATE, screenLocked = locked))
             }
+        }
+
+    /**
+     * Reports what happens on this handset — notifications, calls, SMS, connectivity, battery —
+     * for as long as this socket lives (`docs/phone/device_events.md`).
+     *
+     * Everything that decides WHETHER a report leaves the phone lives in
+     * [DeviceEventReporter][com.danielealbano.androidremotecontrolmcp.services.connector.events.DeviceEventReporter]
+     * and the pure classes beside it: the holder's per-category toggles AND the platform policy's
+     * `events` section, intersected. This method is deliberately three lines — a rule written here
+     * would be a rule no unit test can reach, since this class is excluded from coverage.
+     *
+     * Started on `attached` rather than on open, like the keyguard watch and for the same reason:
+     * the gateway answers `bad-frame` to any frame that arrives before the handshake completes.
+     */
+    private fun startEventReport(): Job =
+        scope.launch {
+            deviceEvents.reports().collect { frame -> send(frame) }
         }
 
     /**

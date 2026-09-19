@@ -16,6 +16,7 @@ import com.danielealbano.androidremotecontrolmcp.data.model.ToolPermissionsConfi
 import com.danielealbano.androidremotecontrolmcp.data.repository.SettingsRepository
 import com.danielealbano.androidremotecontrolmcp.di.IoDispatcher
 import com.danielealbano.androidremotecontrolmcp.services.accessibility.McpAccessibilityService
+import com.danielealbano.androidremotecontrolmcp.services.connector.events.SmsEventSource
 import com.danielealbano.androidremotecontrolmcp.services.mcp.McpServerService
 import com.danielealbano.androidremotecontrolmcp.services.notifications.McpNotificationListenerService
 import com.danielealbano.androidremotecontrolmcp.services.storage.StorageLocationProvider
@@ -73,6 +74,9 @@ class MainViewModel
 
         private val _isLocationPermissionGranted = MutableStateFlow(false)
         val isLocationPermissionGranted: StateFlow<Boolean> = _isLocationPermissionGranted.asStateFlow()
+
+        private val _isReceiveSmsPermissionGranted = MutableStateFlow(false)
+        val isReceiveSmsPermissionGranted: StateFlow<Boolean> = _isReceiveSmsPermissionGranted.asStateFlow()
 
         private val _isNotificationListenerEnabled = MutableStateFlow(false)
         val isNotificationListenerEnabled: StateFlow<Boolean> = _isNotificationListenerEnabled.asStateFlow()
@@ -209,6 +213,8 @@ class MainViewModel
                 PermissionUtils.isMicrophonePermissionGranted(context)
             _isLocationPermissionGranted.value =
                 PermissionUtils.isLocationPermissionGranted(context)
+            _isReceiveSmsPermissionGranted.value =
+                SmsEventSource.isGranted(context)
             _isNotificationListenerEnabled.value =
                 PermissionUtils.isNotificationListenerEnabled(
                     context,

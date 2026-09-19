@@ -3,11 +3,13 @@ package com.danielealbano.androidremotecontrolmcp.data.repository
 import com.danielealbano.androidremotecontrolmcp.data.model.BindingAddress
 import com.danielealbano.androidremotecontrolmcp.data.model.BuiltinPermissions
 import com.danielealbano.androidremotecontrolmcp.data.model.ConnectorConfig
+import com.danielealbano.androidremotecontrolmcp.data.model.DeviceEventConfig
 import com.danielealbano.androidremotecontrolmcp.data.model.EventChannelConfig
 import com.danielealbano.androidremotecontrolmcp.data.model.NotificationFilterMode
 import com.danielealbano.androidremotecontrolmcp.data.model.ServerConfig
 import com.danielealbano.androidremotecontrolmcp.data.model.StorageLocation
 import com.danielealbano.androidremotecontrolmcp.data.model.ToolPermissionsConfig
+import com.danielealbano.androidremotecontrolmcp.services.connector.protocol.DeviceEventCategory
 import kotlinx.coroutines.flow.Flow
 
 /**
@@ -263,6 +265,31 @@ interface SettingsRepository {
 
     /** Updates the WiFi notify on disconnected toggle. */
     suspend fun updateWifiNotifyOnDisconnected(enabled: Boolean)
+
+    // --- Device event reporting (the platform plane, NOT the channel plugin above) ---
+
+    /**
+     * Observes the holder's per-category device-event toggles.
+     *
+     * Deliberately NOT part of [eventChannelConfig]: that blob configures the upstream channel
+     * plugin's HTTP webhook, and folding the platform's categories into it would tie two unrelated
+     * features to one persisted object — see [DeviceEventConfig].
+     */
+    val deviceEventConfig: Flow<DeviceEventConfig>
+
+    /** Returns the holder's device-event toggles as a one-shot read. */
+    suspend fun getDeviceEventConfig(): DeviceEventConfig
+
+    /**
+     * Switches one device-event category on or off.
+     *
+     * Typed on [DeviceEventCategory] rather than on a string, so a category that does not exist
+     * cannot be persisted and every caller is exhaustive by construction.
+     */
+    suspend fun updateDeviceEventCategoryEnabled(
+        category: DeviceEventCategory,
+        enabled: Boolean,
+    )
 
     // --- Platform Connector ---
 

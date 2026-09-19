@@ -23,6 +23,9 @@ sealed class SettingsRoute(
 
     data object Storage : SettingsRoute("settings/storage")
 
+    /** The holder's per-category device-event toggles (`docs/phone/device_events.md` §2). */
+    data object DeviceEvents : SettingsRoute("settings/device_events")
+
     data object ChannelSettings : SettingsRoute("settings/channel")
 
     data object NotificationFilter : SettingsRoute("settings/channel/notification_filter")
